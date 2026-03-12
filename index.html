@@ -1,0 +1,489 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, user-scalable=no, maximum-scale=1.0, minimum-scale=1.0">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <title>个人主页</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div id="bg-layer"></div>
+
+    <header class="top-bar" id="top-bar">
+        <div class="title-area">
+            <h1 id="page-title">主页</h1>
+            <div id="current-folder" class="current-folder">首页</div>
+        </div>
+        
+        <div class="search-area">
+            <form id="search-form" onsubmit="return handleSearch(event)">
+                <div class="search-wrapper">
+                    <select id="search-engine-select" class="search-select"></select>
+                    <input type="text" id="search-input" placeholder="搜索..." autocomplete="off">
+                    <button type="submit" class="search-btn">🔍</button>
+                </div>
+            </form>
+        </div>
+
+        <div id="weather-widget" class="weather-widget"></div>
+
+        <div class="settings-area">
+            <button id="select-all-btn" title="全选/反全选" style="display:none;">☑️ 全选</button>
+            <button id="toggle-sort-btn" title="完成排序" style="display:none;">✅ 完成</button>
+            <button id="enable-sort-btn" title="编辑图标">🎨</button>
+            <button id="open-settings-btn" title="设置">⚙️</button>
+        </div>
+    </header>
+
+    <main class="container">
+        <div id="icon-grid" class="grid-layout"></div>
+    </main>
+
+    <!-- 主设置模态框 -->
+    <div id="settings-modal" class="modal">
+        <div class="modal-content settings-modal-content">
+            <div class="modal-header">
+                <h2>设置</h2>
+                <span class="close-btn">&times;</span>
+            </div>
+            <div class="settings-container">
+                <!-- 左侧导航栏 -->
+                <div class="settings-sidebar">
+                    <div class="settings-nav-item active" data-section="interface">界面设置</div>
+                    <div class="settings-nav-item" data-section="content">内容设置</div>
+                    <div class="settings-nav-item" data-section="features">功能设置</div>
+                    <div class="settings-nav-item" data-section="data">数据管理</div>
+                </div>
+                
+                <!-- 右侧内容区域 -->
+                <div class="settings-content">
+                    <!-- 1. 界面设置 -->
+                    <div id="interface-section" class="settings-section active">
+                        <h3>界面设置</h3>
+                        <!-- 1.1 主页标题 -->
+                        <div class="setting-group">
+                            <label>主页标题</label>
+                            <div class="input-row">
+                                <input type="text" id="title-input" placeholder="输入标题">
+                                <button id="btn-save-title" class="btn-small">保存</button>
+                            </div>
+                        </div>
+                        
+                        <!-- 1.2 快速添加开关 -->
+                        <div class="setting-group">
+                            <div class="setting-item">
+                                <label>首页显示"添加"按钮</label>
+                                <button id="quick-add-toggle" class="toggle-switch-btn" data-state="off">关</button>
+                            </div>
+                        </div>
+                        
+                        <!-- 1.3 主题模式 -->
+                        <div class="setting-group">
+                            <label>显示模式</label>
+                            <div class="toggle-group">
+                                <button id="theme-auto" class="toggle-btn">自动</button>
+                                <button id="theme-light" class="toggle-btn">浅色</button>
+                                <button id="theme-dark" class="toggle-btn">深色</button>
+                            </div>
+                        </div>
+                        
+                        <!-- 1.4 顶栏文字颜色 -->
+                        <div class="setting-group">
+                            <label>顶栏文字颜色</label>
+                            <div class="toggle-group">
+                                <button id="header-text-auto" class="toggle-btn">自动</button>
+                                <button id="header-text-light" class="toggle-btn">浅色</button>
+                                <button id="header-text-dark" class="toggle-btn">深色</button>
+                            </div>
+                            <small style="color:#888; display:block; margin-top:5px;">"自动"会跟随显示模式变化</small>
+                        </div>
+                        
+                        <!-- 1.5 透明顶栏 -->
+                        <div class="setting-group">
+                            <div class="setting-item">
+                                <label style="font-weight:600;">沉浸式透明顶栏</label>
+                                <button id="transparent-header-toggle" class="toggle-switch-btn" data-state="off">关</button>
+                            </div>
+                            <div id="transparent-options" style="display:none; padding:15px; background:var(--input-bg); border-radius:8px; margin-top:10px;">
+                                <div class="setting-item">
+                                    <label style="font-size:0.85rem; font-weight:normal;">文字阴影 (增强对比)</label>
+                                    <button id="header-shadow-toggle" class="toggle-switch-btn" data-state="off">关</button>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <!-- 1.6 背景设置 -->
+                        <div class="setting-group">
+                            <label>背景设置</label>
+                            <div class="bg-tabs">
+                                <button class="bg-tab active" data-type="color">纯色</button>
+                                <button class="bg-tab" data-type="local">本地路径</button>
+                                <button class="bg-tab" data-type="upload">上传</button>
+                                <button class="bg-tab" data-type="url">网络 URL</button>
+                                <button class="bg-tab" data-type="daily">每日一图</button>
+                            </div>
+                            
+                            <div id="bg-color-panel" class="bg-panel">
+                                <label for="color-picker-input">选择颜色</label>
+                                <input type="color" id="color-picker-input" class="bg-input">
+                            </div>
+                            
+                            <div id="bg-local-panel" class="bg-panel" style="display:none;">
+                                <input type="text" id="bg-local-input" class="bg-input" placeholder="输入本地图片路径，如：file:///C:/Users/YourUser/Pictures/wallpaper.jpg">
+                                <small style="color:#888; display:block; margin-top:5px;">提示：在 Windows 上，右键点击图片文件，选择"复制文件地址"，然后粘贴到此处。</small>
+                                <small style="color:#ff9800; display:block; margin-top:5px;">⚠️ 仅支持 file:/// 协议，并可能因浏览器安全策略而失效。</small>
+                            </div>
+                            
+                            <div id="bg-upload-panel" class="bg-panel" style="display:none;">
+                                <input type="file" id="bg-upload-input" class="bg-input" accept="image/jpeg, image/png, image/webp">
+                                <small style="color:#888; display:block; margin-top:5px;">图片将被压缩至500KB以内并保存在本地。</small>
+                                <div id="upload-preview" class="upload-preview" style="display:none;">
+                                    <img id="upload-preview-img" src="" alt="上传预览">
+                                    <div id="upload-info"></div>
+                                </div>
+                            </div>
+                            
+                            <div id="bg-url-panel" class="bg-panel" style="display:none;">
+                                <input type="text" id="bg-url-input" class="bg-input" placeholder="输入图片 URL">
+                            </div>
+                            
+                            <div id="bg-daily-panel" class="bg-panel" style="display:none;">
+                                <p>启用后，将自动从 Bing 获取每日壁纸作为背景。</p>
+                                <small>此功能由第三方 API 提供，服务可用性无法完全保证。</small>
+                            </div>
+                            
+                            <div style="margin-top:15px; text-align:right;">
+                                <button id="btn-save-bg" class="btn-small">保存背景</button>
+                                <button id="btn-reset-bg" class="btn-small" style="background:#666;">重置</button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- 2. 内容设置 -->
+                    <div id="content-section" class="settings-section">
+                        <h3>内容设置</h3>
+                        <!-- 2.1 搜索引擎 -->
+                        <div class="setting-group">
+                            <label>默认搜索引擎</label>
+                            <select id="default-search-engine" class="full-width-input"></select>
+                            <div class="input-row" style="margin-top: 10px;">
+                                <button id="btn-add-engine" class="btn-small">➕ 添加引擎</button>
+                                <button id="btn-reset-engines" class="btn-small" style="background:#666;">重置引擎</button>
+                            </div>
+                        </div>
+                        <div class="setting-group">
+                            <label>自定义引擎列表</label>
+                            <div id="engines-list" class="engines-list"></div>
+                        </div>
+                        
+                        <!-- 2.2 链接管理 -->
+                        <div class="setting-group">
+                            <label>添加/修改网站</label>
+                            <input type="hidden" id="edit-index" value="-1">
+                            <div class="input-row">
+                                <input type="text" id="new-link-name" placeholder="名称">
+                                <input type="text" id="new-link-url" placeholder="网址">
+                                <button id="btn-add-link" class="btn-small">添加</button>
+                                <button id="btn-cancel-edit" class="btn-small" style="display:none; background:#666;">取消</button>
+                            </div>
+                        </div>
+                        
+                        <div class="setting-group">
+                            <label>管理现有网站</label>
+                            <div id="links-list" class="links-list"></div>
+                        </div>
+                    </div>
+
+                    <!-- 3. 功能设置 -->
+                    <div id="features-section" class="settings-section">
+                        <h3>功能设置</h3>
+                        <!-- 3.1 天气设置 -->
+                        <div class="setting-group">
+                            <div class="setting-item">
+                                <label style="font-weight:600;">显示天气挂件</label>
+                                <button id="weather-toggle" class="toggle-switch-btn" data-state="off">关</button>
+                            </div>
+                            <div id="weather-options" style="display:none; padding:15px; background:var(--input-bg); border-radius:8px; margin-top:10px;">
+                                <label>位置获取方式</label>
+                                <div class="toggle-group" style="margin-top: 5px;">
+                                    <button id="weather-loc-auto" class="toggle-btn">自动</button>
+                                    <button id="weather-loc-manual" class="toggle-btn">手动</button>
+                                </div>
+                                <div id="weather-manual-input-container" style="display:none; margin-top:10px;">
+                                    <input type="text" id="weather-manual-city" class="full-width-input" placeholder="输入城市名称，如：北京">
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <!-- 3.2 书签导入 -->
+                        <div class="setting-group">
+                            <label>选择浏览器</label>
+                            <div class="toggle-group">
+                                <button id="browser-edge" class="toggle-btn">Microsoft Edge</button>
+                                <button id="browser-chrome" class="toggle-btn">Google Chrome</button>
+                            </div>
+                        </div>
+                        
+                        <div class="setting-group">
+                            <label>导入模式</label>
+                            <div class="toggle-group">
+                                <button id="import-incremental" class="toggle-btn">增量导入</button>
+                                <button id="import-full" class="toggle-btn">全量导入</button>
+                            </div>
+                        </div>
+                        
+                        <div class="setting-group">
+                            <label>选择书签文件</label>
+                            <div class="input-row">
+                                <button id="btn-select-bookmark" class="btn-small" style="background:#17a2b8;">📁 选择文件</button>
+                                <span id="bookmark-file-name" style="margin-left: 10px; color: #888;">未选择文件</span>
+                                <input type="file" id="bookmark-file-input" style="display: none;" accept=".html">
+                            </div>
+                            <small style="color:#888; display:block; margin-top:5px;">提示：在浏览器中导出书签为 HTML 文件，然后选择该文件进行导入。</small>
+                        </div>
+                        
+                        <div class="setting-group">
+                            <label>导入预览</label>
+                            <div id="import-preview" class="import-preview" style="max-height: 300px; overflow-y: auto; border: 1px solid #ddd; border-radius: 4px; padding: 10px; margin-top: 10px;">
+                                <p style="text-align: center; color: #888;">请选择书签文件以查看预览</p>
+                            </div>
+                        </div>
+                        
+                        <div class="setting-group">
+                            <div class="input-row" style="justify-content: flex-end;">
+                                <button id="btn-import-bookmark" class="btn-small" style="background:#28a745;">🚀 开始导入</button>
+                            </div>
+                        </div>
+                        
+                        <div id="import-progress" class="setting-group" style="display: none;">
+                            <label>导入进度</label>
+                            <div class="progress-bar" style="width: 100%; height: 20px; background-color: #f0f0f0; border-radius: 10px; overflow: hidden; margin-top: 10px;">
+                                <div id="progress-fill" style="width: 0%; height: 100%; background-color: #4CAF50; transition: width 0.3s ease;"></div>
+                            </div>
+                            <p id="progress-text" style="text-align: center; margin-top: 5px; font-size: 0.9rem;">准备导入...</p>
+                        </div>
+                    </div>
+
+                    <!-- 4. 数据管理 -->
+                    <div id="data-section" class="settings-section">
+                        <h3>数据管理</h3>
+                        <!-- 4.1 存储方式设置 -->
+                        <div class="setting-group">
+                            <label>存储方式</label>
+                            <div class="toggle-group">
+                                <button id="storage-local" class="toggle-btn">本地存储</button>
+                                <button id="storage-cloudflare" class="toggle-btn">CloudFlare KV</button>
+                            </div>
+                        </div>
+                        
+                        <!-- 5.2 CloudFlare KV 配置 -->
+                        <div id="cloudflare-config" class="setting-group" style="display:none;">
+                            <label>CloudFlare KV 配置</label>
+                            <div class="input-row" style="flex-direction: column; gap: 10px;">
+                                <div>
+                                    <label style="font-size: 0.9rem; margin-bottom: 5px; display: block;">API 地址 (URL)</label>
+                                    <input type="text" id="cf-api-url" class="full-width-input" placeholder="https://你的项目.pages.dev">
+                                    <small style="color:#888; display:block; margin-top:5px;">示例: https://your-project.pages.dev</small>
+                                    <small style="color:#888; display:block;">获取方法: CloudFlare Pages 部署后生成的 URL（无需添加 /api 后缀）</small>
+                                </div>
+                                <div>
+                                    <label style="font-size: 0.9rem; margin-bottom: 5px; display: block;">UUID 密钥 (X-API-Key)</label>
+                                    <input type="password" id="cf-api-key" class="full-width-input" placeholder="CloudFlare Worker UUID 密钥">
+                                    <small style="color:#888; display:block; margin-top:5px;">示例: aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee</small>
+                                    <small style="color:#888; display:block;">获取方法: 在 _worker.js 文件中设置的 SECRET_KEY</small>
+                                </div>
+                                <div class="input-row" style="justify-content: space-between;">
+                                    <button id="btn-download-local" class="btn-small" style="background:#6c757d;">下载本地化部署资料</button>
+                                    <div style="display: flex; gap: 10px;">
+                                        <button id="btn-test-cloudflare" class="btn-small" style="background:#17a2b8;">测试连接</button>
+                                        <button id="btn-save-storage" class="btn-small">保存设置</button>
+                                    </div>
+                                </div>
+                                <div class="info-box">
+                                    <h4>测试提示</h4>
+                                    <p>1. 确保你的 CloudFlare Worker 已部署并正常运行</p>
+                                    <p>2. 测试连接时，系统会尝试访问指定的 API 地址</p>
+                                    <p>3. 如果测试失败，请检查你的网络连接和配置信息</p>
+                                </div>
+                                <div class="note-box">
+                                    <h4>Worker 部署说明</h4>
+                                    <p>1. 将 _worker.js 文件部署到 CloudFlare Pages</p>
+                                    <p>2. 在 CloudFlare Pages 中绑定 KV 命名空间，变量名为 webhome</p>
+                                    <p>3. 生成一个 UUID 作为 SECRET_KEY 并更新到 _worker.js 文件中</p>
+                                    <p>4. 部署完成后，使用生成的 URL 作为 API 地址</p>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <!-- 4.2 数据备份 -->
+                        <div class="setting-group">
+                            <label>数据备份</label>
+                            <div class="input-row">
+                                <button id="btn-export-config" class="btn-small" style="background:#28a745;">⬇️ 导出</button>
+                                <button id="btn-export-bookmarks" class="btn-small" style="background:#28a745;">📁 导出书签</button>
+                                <button id="btn-import-config" class="btn-small" style="background:#17a2b8;">⬆️ 导入</button>
+                                <button id="btn-clear-all-data" class="btn-small" style="background:#dc3545;">🗑️ 清除所有数据</button>
+                                <input type="file" id="file-import-input" style="display: none;" accept=".json">
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 清除所有数据对话框 -->
+    <div id="clear-data-modal" class="modal">
+        <div class="modal-content" style="max-width: 400px;">
+            <div class="modal-header">
+                <h2>清除所有数据</h2>
+                <span class="close-btn" onclick="closeClearDataModal()">&times;</span>
+            </div>
+            <div class="modal-body">
+                <p style="margin-bottom: 15px; color: #dc3545; font-weight: bold;">警告：此操作将清除所有数据，包括：</p>
+                <ul style="margin-bottom: 15px; padding-left: 20px;">
+                    <li>所有添加的网站</li>
+                    <li>所有自定义搜索引擎</li>
+                    <li>所有设置配置</li>
+                    <li>所有书签数据</li>
+                </ul>
+                <p style="margin-bottom: 15px;">此操作不可恢复，是否确定要继续？</p>
+                <div id="clear-data-step-1">
+                    <button id="btn-confirm-step-1" class="btn-small" style="background:#dc3545;">我确定要清除所有数据</button>
+                </div>
+                <div id="clear-data-step-2" style="display: none;">
+                    <p style="margin-bottom: 10px;">请再次确认，输入 "我确定清除" 以执行操作：</p>
+                    <input type="text" id="clear-data-confirm-input" class="full-width-input" placeholder="输入确认文本">
+                    <div class="input-row" style="margin-top: 15px; justify-content: space-between;">
+                        <button id="btn-back-step-2" class="btn-small">返回</button>
+                        <button id="btn-confirm-step-2" class="btn-small" style="background:#dc3545;">执行清除</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 搜索引擎编辑子弹窗 -->
+    <div id="engine-modal" class="modal">
+        <div class="modal-content" style="max-width: 400px;">
+            <div class="modal-header">
+                <h2 id="engine-modal-title">添加引擎</h2>
+                <span class="close-btn" onclick="closeEngineModal()">&times;</span>
+            </div>
+            <div class="modal-body">
+                <input type="hidden" id="engine-edit-key" value="">
+                <div class="setting-group">
+                    <label>引擎名称</label>
+                    <input type="text" id="engine-name-input" placeholder="如：搜狗">
+                </div>
+                <div class="setting-group">
+                    <label>搜索 URL 模板</label>
+                    <input type="text" id="engine-url-input" placeholder="如：https://www.sogou.com/web?query=">
+                </div>
+                <div class="input-row" style="justify-content: flex-end;">
+                    <button onclick="closeEngineModal()" class="btn-small" style="background:#666;">取消</button>
+                    <button onclick="saveEngineFromModal()" class="btn-small">保存</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 快速添加网站子弹窗 -->
+    <div id="quick-add-modal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2>添加项目</h2>
+                <span class="close-btn" onclick="closeQuickAddModal()">&times;</span>
+            </div>
+            <div class="modal-body">
+                <div class="setting-group">
+                    <label>项目类型</label>
+                    <div class="toggle-group">
+                        <button id="add-type-link" class="toggle-btn active">网站</button>
+                        <button id="add-type-folder" class="toggle-btn">文件夹</button>
+                    </div>
+                </div>
+                <div class="setting-group">
+                    <label>名称</label>
+                    <input type="text" id="quick-link-name" placeholder="如：知乎" class="full-width-input">
+                </div>
+                <div class="setting-group" id="url-group">
+                    <label>网站网址</label>
+                    <input type="text" id="quick-link-url" placeholder="如：zhihu.com" class="full-width-input">
+                </div>
+                <div class="input-row" style="justify-content: flex-end;">
+                    <button onclick="closeQuickAddModal()" class="btn-small" style="background:#666;">取消</button>
+                    <button onclick="saveQuickLink()" class="btn-small">添加</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 图标编辑子弹窗 (新增) -->
+    <div id="icon-edit-modal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2>修改图标</h2>
+                <span class="close-btn" onclick="closeIconEditModal()">&times;</span>
+            </div>
+            <div class="modal-body">
+                <input type="hidden" id="icon-edit-index" value="-1">
+                <div class="setting-group">
+                    <label>网站名称</label>
+                    <input type="text" id="icon-edit-name" placeholder="如：知乎" class="full-width-input">
+                </div>
+                <div class="setting-group">
+                    <label>网站网址</label>
+                    <input type="text" id="icon-edit-url" placeholder="如：zhihu.com" class="full-width-input">
+                </div>
+                <div class="input-row" style="justify-content: flex-end;">
+                    <button onclick="closeIconEditModal()" class="btn-small" style="background:#666;">取消</button>
+                    <button onclick="saveIconEdit()" class="btn-small">保存</button>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <!-- 文件夹编辑子弹窗 -->
+    <div id="folder-edit-modal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2>修改文件夹</h2>
+                <span class="close-btn" onclick="closeFolderEditModal()">&times;</span>
+            </div>
+            <div class="modal-body">
+                <input type="hidden" id="folder-edit-index" value="-1">
+                <div class="setting-group">
+                    <label>文件夹名称</label>
+                    <input type="text" id="folder-edit-name" placeholder="如：常用工具" class="full-width-input">
+                </div>
+                <div class="input-row" style="justify-content: flex-end;">
+                    <button onclick="closeFolderEditModal()" class="btn-small" style="background:#666;">取消</button>
+                    <button onclick="saveFolderEdit()" class="btn-small">保存</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 确认对话框 -->
+    <div id="confirm-modal" class="modal">
+        <div class="modal-content" style="max-width: 400px;">
+            <div class="modal-header">
+                <h2>确认操作</h2>
+                <span class="close-btn" onclick="closeConfirmModal()">&times;</span>
+            </div>
+            <div class="modal-body">
+                <p id="confirm-message" style="margin-bottom: 20px;"></p>
+                <div class="input-row" style="justify-content: flex-end;">
+                    <button onclick="closeConfirmModal()" class="btn-small" style="background:#666;">取消</button>
+                    <button onclick="confirmAction()" class="btn-small" style="background:#dc3545;">确认</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="script.js"></script>
+</body>
+</html>
