@@ -108,6 +108,7 @@ body {
 
 .top-bar {
     height: 70px;
+    min-height: 70px;
     display: flex;
     justify-content: space-between;
     align-items: center;
@@ -132,7 +133,6 @@ body {
         padding-bottom: max(10px, env(safe-area-inset-bottom, 10px));
         min-height: auto;
         height: auto;
-        min-height: 70px;
     }
 }
 
@@ -290,7 +290,6 @@ body {
     background: var(--search-bg);
     border: 1px solid var(--border-color);
     border-radius: 25px;
-    overflow: hidden;
     transition: border-color 0.2s, box-shadow 0.2s;
 }
 .search-wrapper:focus-within {
@@ -299,16 +298,125 @@ body {
     background: var(--bg-color);
 }
 
-.search-select {
-    border: none; border-right: 1px solid var(--border-color);
-    background: transparent; 
+.custom-select-wrapper {
+    position: relative;
+    max-width: 120px;
+    border-right: 1px solid var(--border-color);
+}
+
+.custom-select {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    background: transparent;
     color: var(--search-text-color);
-    padding: 12px 15px; font-size: 0.9rem; cursor: pointer;
-    max-width: 120px; text-align: center; text-align-last: center;
-    appearance: none; -webkit-appearance: none;
-    background-image: url("image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='10' viewBox='0 0 10 10'%3E%3Cpath fill='%23888' d='M5 7L1 3h8z'/%3E%3C/svg%3E");
-    background-repeat: no-repeat; background-position: right 10px center;
-    padding-right: 25px;
+    padding: 12px 15px;
+    font-size: 0.9rem;
+    cursor: pointer;
+    text-align: center;
+    min-width: 100px;
+    transition: background-color 0.2s;
+}
+
+.custom-select:hover {
+    background-color: rgba(0,0,0,0.05);
+}
+
+.select-value {
+    flex: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.select-arrow {
+    font-size: 0.7rem;
+    margin-left: 8px;
+    transition: transform 0.2s;
+}
+
+.custom-select.open .select-arrow {
+    transform: rotate(180deg);
+}
+
+.select-dropdown {
+    position: absolute;
+    top: 100%;
+    left: 0;
+    right: 0;
+    background: var(--bg-color);
+    border: 1px solid var(--border-color);
+    border-top: none;
+    border-radius: 0 0 8px 8px;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+    z-index: 1000;
+    max-height: 200px;
+    overflow-y: auto;
+    display: none;
+}
+
+.select-dropdown.show {
+    display: block;
+}
+
+.dropdown-options {
+    padding: 4px 0;
+}
+
+.dropdown-option {
+    padding: 10px 15px;
+    cursor: pointer;
+    transition: background-color 0.2s;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.dropdown-option:hover {
+    background-color: var(--card-hover);
+}
+
+.dropdown-option.selected {
+    background-color: var(--accent-color);
+    color: white;
+}
+
+/* 透明头部样式 */
+.top-bar.transparent .custom-select-wrapper {
+    border-right-color: rgba(255,255,255,0.3);
+}
+
+.top-bar.transparent .custom-select {
+    color: white;
+}
+
+.top-bar.transparent .custom-select:hover {
+    background-color: rgba(255,255,255,0.1);
+}
+
+.top-bar.transparent .select-dropdown {
+    background: rgba(0,0,0,0.8);
+    border-color: rgba(255,255,255,0.3);
+}
+
+.top-bar.transparent .dropdown-option:hover {
+    background-color: rgba(255,255,255,0.1);
+}
+
+/* 响应式设计 */
+@media (max-width: 768px) {
+    .custom-select-wrapper {
+        max-width: 90px;
+    }
+    
+    .custom-select {
+        padding: 10px 10px;
+        font-size: 0.8rem;
+    }
+    
+    .select-value {
+        max-width: 60px;
+    }
 }
 
 #search-input {
@@ -327,6 +435,56 @@ body {
     cursor: pointer; height: 100%; display: flex; align-items: center; justify-content: center;
 }
 .search-btn:hover { background: var(--card-bg); }
+
+/* 搜索输入容器样式 */
+.search-input-container {
+    position: relative;
+    flex: 1;
+    display: flex;
+    align-items: center;
+}
+
+/* 搜索联想样式 */
+.search-suggestions {
+    position: absolute;
+    top: 100%;
+    left: 0;
+    right: 0;
+    background: var(--card-bg);
+    border: 1px solid var(--border-color);
+    border-radius: 0 0 8px 8px;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+    z-index: 1000;
+    max-height: 300px;
+    overflow-y: auto;
+    display: none;
+}
+
+.search-suggestions.show {
+    display: block;
+}
+
+.search-suggestion-item {
+    padding: 10px 15px;
+    cursor: pointer;
+    transition: background 0.2s;
+    display: flex;
+    align-items: center;
+}
+
+.search-suggestion-item:hover {
+    background: var(--card-hover);
+}
+
+.search-suggestion-item .suggestion-icon {
+    margin-right: 10px;
+    font-size: 1rem;
+}
+
+.search-suggestion-item .suggestion-text {
+    flex: 1;
+    color: var(--text-color);
+}
 
 .settings-area { display: flex; gap: 10px; }
 .settings-area button {
@@ -355,9 +513,18 @@ body {
     flex: 1; overflow-y: auto; padding: 30px;
     width: 100%; max-width: 2000px; margin: 0 auto;
 }
+
+.container.hide-icons {
+    padding-bottom: 100vh;
+}
+
 .grid-layout {
     display: grid; grid-template-columns: repeat(auto-fill, minmax(100px, 1fr));
     gap: 20px; align-content: start;
+}
+
+.grid-layout.hidden {
+    margin-top: 100vh;
 }
 .icon-card {
     display: flex; flex-direction: column; align-items: center; justify-content: center;
@@ -769,6 +936,10 @@ input[type="checkbox"] {
 
     .container {
         padding: 15px;
+    }
+
+    .container.hide-icons {
+        padding-bottom: 100vh;
     }
 
     .grid-layout {

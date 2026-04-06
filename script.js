@@ -20,6 +20,10 @@ const DEFAULTS = {
     weatherLocationMode: "auto", // auto or manual
     weatherManualCity: "",
     weatherCache: null,
+    hideIcons: false,
+    quickSearch: true, // 快捷搜索图标开关
+    searchSuggestions: 5, // 搜索联想功能，0=关闭, 5=5词条, 10=10词条
+    searchShowIcons: true, // 搜索时临时不隐藏图标
     storage: {
         type: "local", // local or cloudflare
         cloudflare: {
@@ -41,6 +45,7 @@ let currentBgType = 'color';
 let currentFolderPath = [];
 let isDragDropMode = false;
 let selectedItems = new Set(); // 存储选中的项目索引
+let isDataRefreshed = false; // 标记数据是否已被 triggerDataRefresh 刷新
 
 document.addEventListener('DOMContentLoaded', async () => {
     await loadData();
@@ -58,6 +63,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     initSortListeners();
     initBgTabs();
     applyWeatherUI();
+    applyHideIcons();
     
     // 初始化当前文件夹显示
     updateCurrentFolderDisplay();
@@ -144,6 +150,10 @@ function ensureDataIntegrity() {
     if(appData.showWeather === undefined) appData.showWeather = DEFAULTS.showWeather;
     if(!appData.weatherLocationMode) appData.weatherLocationMode = DEFAULTS.weatherLocationMode;
     if(!appData.weatherManualCity) appData.weatherManualCity = DEFAULTS.weatherManualCity;
+    if(appData.hideIcons === undefined) appData.hideIcons = DEFAULTS.hideIcons;
+    if(appData.quickSearch === undefined) appData.quickSearch = DEFAULTS.quickSearch;
+    if(appData.searchSuggestions === undefined) appData.searchSuggestions = DEFAULTS.searchSuggestions;
+    if(appData.searchShowIcons === undefined) appData.searchShowIcons = DEFAULTS.searchShowIcons;
     if(!appData.storage) appData.storage = JSON.parse(JSON.stringify(DEFAULTS.storage));
     if(!appData.storage.cloudflare) appData.storage.cloudflare = JSON.parse(JSON.stringify(DEFAULTS.storage.cloudflare));
     // 保留已有的CloudFlare配置，不被默认值覆盖
@@ -253,7 +263,13 @@ function setupDataRefresh() {
             if (appData.storage.cloudflare && appData.storage.cloudflare.apiUrl && appData.storage.cloudflare.apiKey) {
                 try {
                     await loadData();
-                    renderIcons();
+                    // 根据当前路径重新渲染相应内容
+                    if (currentFolderPath.length === 0) {
+                        renderIcons();
+                    } else {
+                        const currentFolder = getFolderByPath(currentFolderPath);
+                        renderFolderContents(currentFolder);
+                    }
                     updateCurrentFolderDisplay();
                 } catch (e) {
                     console.error('定时刷新数据失败:', e);
@@ -269,7 +285,15 @@ function triggerDataRefresh() {
         // 检查CloudFlare KV配置是否完整
         if (appData.storage.cloudflare && appData.storage.cloudflare.apiUrl && appData.storage.cloudflare.apiKey) {
             loadData().then(() => {
-                renderIcons();
+                // 标记数据已刷新
+                isDataRefreshed = true;
+                // 根据当前路径重新渲染相应内容
+                if (currentFolderPath.length === 0) {
+                    renderIcons();
+                } else {
+                    const currentFolder = getFolderByPath(currentFolderPath);
+                    renderFolderContents(currentFolder);
+                }
                 updateCurrentFolderDisplay();
             }).catch(e => {
                 console.error('手动刷新数据失败:', e);
@@ -320,7 +344,7 @@ async function saveToCloudflareKV() {
 }
 
 function mergeEngines() {
-    allEngines = { ...DEFAULT_ENGINES, ...appData.customEngines };
+    allEngines = { ...DEFAULT_ENGINES, ...appData.customEngines, icon: { name: "图标", url: "icon:" } };
 }
 
 function renderTitle() {
@@ -331,40 +355,490 @@ function renderTitle() {
 function renderSearchDropdowns() {
     const searchSelect = document.getElementById('search-engine-select');
     const defaultSelect = document.getElementById('default-search-engine');
-    searchSelect.innerHTML = '';
+    
+    // 渲染自定义选择器
+    const selectValue = searchSelect.querySelector('.select-value');
+    const dropdownOptions = searchSelect.nextElementSibling.querySelector('.dropdown-options');
+    
+    if (selectValue && dropdownOptions) {
+        dropdownOptions.innerHTML = '';
+        
+        for (const [key, engine] of Object.entries(allEngines)) {
+            const option = document.createElement('div');
+            option.className = 'dropdown-option';
+            option.dataset.value = key;
+            option.textContent = engine.name;
+            if (key === appData.defaultSearchEngine) {
+                option.classList.add('selected');
+                selectValue.textContent = engine.name;
+            }
+            dropdownOptions.appendChild(option);
+        }
+    }
+    
+    // 渲染默认选择器（设置页面）- 不包含图标搜索
     defaultSelect.innerHTML = '';
     for (const [key, engine] of Object.entries(allEngines)) {
-        const opt1 = document.createElement('option'); opt1.value = key; opt1.text = engine.name;
-        searchSelect.appendChild(opt1);
-        const opt2 = document.createElement('option'); opt2.value = key; opt2.text = engine.name;
-        defaultSelect.appendChild(opt2);
+        // 跳过图标搜索选项
+        if (key === 'icon') {
+            continue;
+        }
+        const opt = document.createElement('option');
+        opt.value = key;
+        opt.text = engine.name;
+        defaultSelect.appendChild(opt);
     }
-    searchSelect.value = appData.defaultSearchEngine;
+    // 确保默认值不是图标搜索
+    if (appData.defaultSearchEngine === 'icon') {
+        appData.defaultSearchEngine = DEFAULTS.defaultSearchEngine;
+    }
     defaultSelect.value = appData.defaultSearchEngine;
     updateSearchPlaceholder();
+    
+    // 初始化搜索输入框事件
+    initSearchInputEvents();
+}
+
+// 初始化搜索输入框事件
+function initSearchInputEvents() {
+    const searchInput = document.getElementById('search-input');
+    const suggestionsContainer = document.getElementById('search-suggestions');
+    if (searchInput) {
+        // 输入事件监听器
+        searchInput.addEventListener('input', function(e) {
+            const query = e.target.value.trim();
+            if (query.length >= 2 && appData.searchSuggestions > 0) {
+                // 清除之前的超时
+                if (searchSuggestionsTimeout) {
+                    clearTimeout(searchSuggestionsTimeout);
+                }
+                
+                // 设置新的超时，实现输入防抖
+                searchSuggestionsTimeout = setTimeout(() => {
+                    getSearchSuggestions(query);
+                }, 300);
+            } else {
+                // 隐藏联想结果
+                hideSearchSuggestions();
+            }
+        });
+        
+        // 点击事件，阻止冒泡
+        searchInput.addEventListener('click', function(e) {
+            e.stopPropagation();
+        });
+        
+        // 键盘事件
+        searchInput.addEventListener('keydown', function(e) {
+            const suggestions = document.querySelectorAll('.search-suggestion-item');
+            const activeIndex = Array.from(suggestions).findIndex(item => item.classList.contains('active'));
+            
+            switch (e.key) {
+                case 'ArrowDown':
+                    e.preventDefault();
+                    if (activeIndex < suggestions.length - 1) {
+                        if (activeIndex >= 0) {
+                            suggestions[activeIndex].classList.remove('active');
+                        }
+                        suggestions[activeIndex + 1].classList.add('active');
+                        suggestions[activeIndex + 1].scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+                    }
+                    break;
+                case 'ArrowUp':
+                    e.preventDefault();
+                    if (activeIndex > 0) {
+                        suggestions[activeIndex].classList.remove('active');
+                        suggestions[activeIndex - 1].classList.add('active');
+                        suggestions[activeIndex - 1].scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+                    }
+                    break;
+                case 'Enter':
+                    e.preventDefault();
+                    if (activeIndex >= 0) {
+                        suggestions[activeIndex].click();
+                    } else {
+                        // 执行搜索
+                        handleSearch(e);
+                    }
+                    break;
+                case 'Escape':
+                    hideSearchSuggestions();
+                    break;
+            }
+        });
+    }
+    
+    // 为搜索联想容器添加点击事件，阻止冒泡
+    if (suggestionsContainer) {
+        suggestionsContainer.addEventListener('click', function(e) {
+            e.stopPropagation();
+        });
+    }
+    
+    // 点击页面其他地方隐藏联想结果
+    document.addEventListener('click', function() {
+        hideSearchSuggestions();
+    });
+}
+
+// 获取搜索联想
+function getSearchSuggestions(query) {
+    const searchSelect = document.getElementById('search-engine-select');
+    const selectedValue = searchSelect.dataset.value || appData.defaultSearchEngine;
+    
+    // 图标搜索时不调用联想
+    if (selectedValue === 'icon') {
+        return;
+    }
+    
+    // 检查搜索联想功能是否开启
+    if (appData.searchSuggestions <= 0) {
+        hideSearchSuggestions();
+        return;
+    }
+    
+    // 使用百度搜索联想API
+    try {
+        // 清除之前的脚本
+        const oldScript = document.getElementById('suggestion-script');
+        if (oldScript) {
+            oldScript.remove();
+        }
+        
+        // 创建新的脚本标签
+        const script = document.createElement('script');
+        script.id = 'suggestion-script';
+        script.src = `https://suggestion.baidu.com/su?wd=${encodeURIComponent(query)}&cb=handleBaiduSuggestion`;
+        document.body.appendChild(script);
+    } catch (error) {
+        console.error('获取搜索联想失败:', error);
+        hideSearchSuggestions();
+    }
+}
+
+// 处理百度搜索联想回调
+function handleBaiduSuggestion(data) {
+    try {
+        if (data && data.s && Array.isArray(data.s)) {
+            const suggestions = data.s;
+            // 根据设置限制联想数量
+            if (appData.searchSuggestions > 0) {
+                const limitedSuggestions = suggestions.slice(0, appData.searchSuggestions);
+                renderSearchSuggestions(limitedSuggestions);
+            } else {
+                // 搜索联想功能关闭
+                hideSearchSuggestions();
+            }
+        }
+    } catch (error) {
+        console.error('处理搜索联想失败:', error);
+        hideSearchSuggestions();
+    }
+}
+
+// 渲染搜索联想结果
+function renderSearchSuggestions(suggestions) {
+    const suggestionsContainer = document.getElementById('search-suggestions');
+    if (!suggestionsContainer) return;
+    
+    suggestionsContainer.innerHTML = '';
+    
+    if (suggestions.length === 0) {
+        hideSearchSuggestions();
+        return;
+    }
+    
+    suggestions.forEach(suggestion => {
+        const item = document.createElement('div');
+        item.className = 'search-suggestion-item';
+        item.innerHTML = `
+            <span class="suggestion-icon">🔍</span>
+            <span class="suggestion-text">${suggestion}</span>
+        `;
+        
+        // 点击联想项
+        item.addEventListener('click', function() {
+            const searchInput = document.getElementById('search-input');
+            if (searchInput) {
+                searchInput.value = suggestion;
+                hideSearchSuggestions();
+                // 执行搜索
+                const event = new Event('submit');
+                document.getElementById('search-form').dispatchEvent(event);
+            }
+        });
+        
+        suggestionsContainer.appendChild(item);
+    });
+    
+    // 显示联想结果
+    suggestionsContainer.classList.add('show');
+}
+
+// 隐藏搜索联想结果
+function hideSearchSuggestions() {
+    const suggestionsContainer = document.getElementById('search-suggestions');
+    if (suggestionsContainer) {
+        suggestionsContainer.classList.remove('show');
+    }
 }
 
 function updateSearchPlaceholder() {
     const searchSelect = document.getElementById('search-engine-select');
-    const engine = allEngines[searchSelect.value];
+    const selectedValue = searchSelect.dataset.value || appData.defaultSearchEngine;
+    const engine = allEngines[selectedValue];
     document.getElementById('search-input').placeholder = engine ? `${engine.name}搜索` : "搜索...";
 }
 document.addEventListener('DOMContentLoaded', () => {
-    document.getElementById('search-engine-select').addEventListener('change', updateSearchPlaceholder);
+    const searchSelect = document.getElementById('search-engine-select');
+    const dropdown = searchSelect.nextElementSibling;
+    const selectValue = searchSelect.querySelector('.select-value');
+    
+    // 点击选择器切换下拉菜单
+    searchSelect.addEventListener('click', (e) => {
+        e.stopPropagation();
+        searchSelect.classList.toggle('open');
+        dropdown.classList.toggle('show');
+    });
+    
+    // 点击选项选择搜索引擎
+    dropdown.addEventListener('click', (e) => {
+        const option = e.target.closest('.dropdown-option');
+        if (option) {
+            const value = option.dataset.value;
+            searchSelect.dataset.value = value;
+            selectValue.textContent = option.textContent;
+            
+            // 更新选中状态
+            dropdown.querySelectorAll('.dropdown-option').forEach(opt => {
+                opt.classList.remove('selected');
+            });
+            option.classList.add('selected');
+            
+            // 关闭下拉菜单
+            searchSelect.classList.remove('open');
+            dropdown.classList.remove('show');
+            
+            // 更新搜索占位符
+            updateSearchPlaceholder();
+            
+            // 处理管理按钮的显示/隐藏
+            const enableBtn = document.getElementById('enable-sort-btn');
+            if (value === 'icon') {
+                // 切换到图标搜索引擎时隐藏管理按钮
+                if (enableBtn) enableBtn.style.visibility = 'hidden';
+                // 设置图标搜索模式
+                isIconSearchMode = true;
+                isIconSearchActive = true; // 标记当前处于图标搜索模式
+                // 应用隐藏图标设置（此时会显示图标，因为isIconSearchActive为true）
+                applyHideIcons();
+            } else {
+                // 切换到其他搜索引擎时显示管理按钮
+                if (enableBtn) enableBtn.style.visibility = 'visible';
+                // 重置图标搜索模式
+                isIconSearchMode = false;
+                isIconSearchActive = false; // 标记当前不处于图标搜索模式
+                // 应用隐藏图标设置（此时会根据appData.hideIcons的值来决定是否隐藏图标）
+                applyHideIcons();
+            }
+        }
+    });
+    
+    // 点击页面其他地方关闭下拉菜单
+    document.addEventListener('click', () => {
+        searchSelect.classList.remove('open');
+        dropdown.classList.remove('show');
+    });
 });
+
+// 搜索状态管理
+let isIconSearchMode = false;
+let iconSearchResults = [];
+let searchSuggestionsTimeout = null;
+let currentSuggestions = [];
+let isIconSearchActive = false; // 标记当前是否处于图标搜索模式
 
 window.handleSearch = function(e) {
     e.preventDefault();
     const input = document.getElementById('search-input');
     const query = input.value.trim();
     if (query) {
-        const engine = allEngines[document.getElementById('search-engine-select').value];
+        const searchSelect = document.getElementById('search-engine-select');
+        const selectedValue = searchSelect.dataset.value || appData.defaultSearchEngine;
+        const engine = allEngines[selectedValue];
         if (engine) {
-            window.open(engine.url + encodeURIComponent(query), '_blank');
-            input.value = '';
+            if (selectedValue === 'icon') {
+                // 执行图标搜索
+                performIconSearch(query);
+            } else {
+                // 执行网页搜索
+                window.open(engine.url + encodeURIComponent(query), '_blank');
+                input.value = '';
+            }
         }
     }
     return false;
+}
+
+// 执行图标搜索
+function performIconSearch(query) {
+    isIconSearchMode = true;
+    isIconSearchActive = true; // 标记当前处于图标搜索模式
+    iconSearchResults = [];
+    
+    // 应用隐藏图标设置（此时会显示图标，因为isIconSearchActive为true）
+    applyHideIcons();
+    
+    // 搜索根目录的图标和文件夹
+    searchIconsInCollection(appData.links, query, []);
+    
+    // 渲染搜索结果
+    renderIconSearchResults();
+    
+    // 禁用编辑功能
+    disableEditMode();
+}
+
+// 在集合中搜索图标
+function searchIconsInCollection(collection, query, path) {
+    collection.forEach((item, index) => {
+        // 检查名称是否匹配
+        if (item.name.toLowerCase().includes(query.toLowerCase())) {
+            iconSearchResults.push({
+                item: item,
+                path: [...path, index],
+                type: item.type || 'link'
+            });
+        }
+        
+        // 如果是文件夹，递归搜索
+        if (item.type === 'folder' && item.children) {
+            searchIconsInCollection(item.children, query, [...path, index]);
+        }
+    });
+}
+
+// 渲染图标搜索结果
+function renderIconSearchResults() {
+    const grid = document.getElementById('icon-grid');
+    grid.innerHTML = '';
+    
+    // 隐藏天气组件
+    const weatherWidget = document.getElementById('weather-widget');
+    if (weatherWidget) {
+        weatherWidget.style.display = 'none';
+    }
+    
+    // 添加返回按钮
+    const backCard = document.createElement('div');
+    backCard.className = 'icon-card';
+    backCard.onclick = () => {
+        exitIconSearchMode();
+    };
+    
+    const backIcon = document.createElement('div');
+    backIcon.className = 'icon-box';
+    backIcon.innerText = '⬅️';
+    
+    const backText = document.createElement('span');
+    backText.innerText = '返回';
+    
+    backCard.appendChild(backIcon);
+    backCard.appendChild(backText);
+    grid.appendChild(backCard);
+    
+    // 渲染搜索结果
+    iconSearchResults.forEach((result, index) => {
+        const card = document.createElement('div');
+        card.className = 'icon-card';
+        
+        // 设置点击事件
+        if (result.type === 'folder') {
+            card.onclick = () => {
+                // 进入文件夹
+                currentFolderPath = result.path;
+                const folder = getFolderByPath(currentFolderPath);
+                renderFolderContents(folder);
+                updateCurrentFolderDisplay();
+                isIconSearchMode = false;
+            };
+        } else {
+            card.onclick = () => {
+                // 打开网站
+                window.open(result.item.url, '_blank');
+            };
+        }
+        
+        const box = document.createElement('div');
+        box.className = 'icon-box';
+        if (result.type === 'folder') {
+            box.innerText = '📁';
+        } else {
+            const firstChar = result.item.name.charAt(0).toUpperCase();
+            box.innerText = firstChar;
+        }
+        card.appendChild(box);
+        
+        const span = document.createElement('span');
+        span.innerText = result.item.name;
+        card.appendChild(span);
+        
+        grid.appendChild(card);
+    });
+    
+    // 如果没有搜索结果
+    if (iconSearchResults.length === 0) {
+        const noResultCard = document.createElement('div');
+        noResultCard.className = 'icon-card';
+        noResultCard.style.textAlign = 'center';
+        noResultCard.style.pointerEvents = 'none';
+        
+        const box = document.createElement('div');
+        box.className = 'icon-box';
+        box.innerText = '🔍';
+        
+        const span = document.createElement('span');
+        span.innerText = '没有找到';
+        
+        noResultCard.appendChild(box);
+        noResultCard.appendChild(span);
+        grid.appendChild(noResultCard);
+    }
+}
+
+// 退出图标搜索模式
+function exitIconSearchMode() {
+    isIconSearchMode = false;
+    isIconSearchActive = false; // 标记当前不处于图标搜索模式
+    iconSearchResults = [];
+    
+    // 应用隐藏图标设置（此时会根据appData.hideIcons的值来决定是否隐藏图标）
+    applyHideIcons();
+    
+    // 重新渲染图标（根据当前的隐藏图标设置）
+    if (currentFolderPath.length === 0) {
+        renderIcons();
+    } else {
+        const currentFolder = getFolderByPath(currentFolderPath);
+        renderFolderContents(currentFolder);
+    }
+    updateCurrentFolderDisplay();
+}
+
+// 禁用编辑模式
+function disableEditMode() {
+    // 确保编辑模式被禁用
+    isSortMode = false;
+    isDragDropMode = false;
+    
+    // 隐藏编辑相关按钮
+    const enableBtn = document.getElementById('enable-sort-btn');
+    const toggleBtn = document.getElementById('toggle-sort-btn');
+    const selectAllBtn = document.getElementById('select-all-btn');
+    
+    if (enableBtn) enableBtn.style.visibility = 'hidden';
+    if (toggleBtn) toggleBtn.style.visibility = 'hidden';
+    if (selectAllBtn) selectAllBtn.style.visibility = 'hidden';
 }
 
 function renderIcons() {
@@ -382,9 +856,9 @@ function renderIcons() {
     appData.links.forEach((item, index) => {
         const card = document.createElement('div');
         card.className = 'icon-card';
-        if (isSortMode) card.classList.add('sorting-mode');
+        if (isSortMode && !isIconSearchMode) card.classList.add('sorting-mode');
         
-        if (isSortMode) {
+        if (isSortMode && !isIconSearchMode) {
             card.draggable = true;
             card.dataset.index = index;
             card.dataset.type = item.type || 'link';
@@ -587,6 +1061,35 @@ function applyWeatherUI() {
     }
 }
 
+function applyHideIcons() {
+    const grid = document.getElementById('icon-grid');
+    const container = document.querySelector('.container');
+    const toggle = document.getElementById('hide-icons-toggle');
+    
+    // 检查是否处于图标搜索模式
+    const shouldHideIcons = appData.hideIcons && !isIconSearchActive;
+    
+    if (shouldHideIcons) {
+        grid.classList.add('hidden');
+        if (container) {
+            container.classList.add('hide-icons');
+        }
+        if (toggle) {
+            toggle.dataset.state = 'on';
+            toggle.textContent = '开';
+        }
+    } else {
+        grid.classList.remove('hidden');
+        if (container) {
+            container.classList.remove('hide-icons');
+        }
+        if (toggle) {
+            toggle.dataset.state = 'off';
+            toggle.textContent = '关';
+        }
+    }
+}
+
 function getWeatherDescription(code) {
     const descriptions = {
         0: { text: '晴', icon: '☀️' },
@@ -749,11 +1252,16 @@ function initSortListeners() {
     const selectAllBtn = document.getElementById('select-all-btn');
     
     enableBtn.onclick = () => {
+        // 检查是否处于图标搜索模式
+        if (isIconSearchMode) {
+            return; // 在图标搜索模式下禁用编辑功能
+        }
+        
         isSortMode = true;
         isDragDropMode = true;
-        enableBtn.style.display = 'none';
-        toggleBtn.style.display = 'inline-block';
-        selectAllBtn.style.display = 'inline-block';
+        enableBtn.style.visibility = 'hidden';
+        toggleBtn.style.visibility = 'visible';
+        selectAllBtn.style.visibility = 'visible';
         selectedItems.clear(); // 清空选中状态
         updateCurrentFolderDisplay();
         
@@ -777,9 +1285,9 @@ function initSortListeners() {
     toggleBtn.onclick = () => {
         isSortMode = false;
         isDragDropMode = false;
-        toggleBtn.style.display = 'none';
-        selectAllBtn.style.display = 'none';
-        enableBtn.style.display = 'inline-block';
+        toggleBtn.style.visibility = 'hidden';
+        selectAllBtn.style.visibility = 'hidden';
+        enableBtn.style.visibility = 'visible';
         selectedItems.clear(); // 清空选中状态
         saveData();
         updateCurrentFolderDisplay();
@@ -803,6 +1311,11 @@ function initSortListeners() {
     
     // 全选/反全选按钮点击事件
     selectAllBtn.onclick = () => {
+        // 检查是否处于图标搜索模式
+        if (isIconSearchMode) {
+            return; // 在图标搜索模式下禁用编辑功能
+        }
+        
         const items = currentFolderPath.length === 0 ? appData.links : getFolderByPath(currentFolderPath).children;
         const allSelected = selectedItems.size === items.length;
         
@@ -829,6 +1342,11 @@ function initSortListeners() {
 
 // 切换项目选择状态
 function toggleItemSelection(index) {
+    // 检查是否处于图标搜索模式
+    if (isIconSearchMode) {
+        return; // 在图标搜索模式下禁用选择功能
+    }
+    
     if (selectedItems.has(index)) {
         selectedItems.delete(index);
     } else {
@@ -985,22 +1503,61 @@ function moveItemToParentFolder(index) {
         parentFolder.children.push(itemToMove);
     }
     
-    // 保存数据并重新渲染
+    // 保存数据，triggerDataRefresh会自动处理渲染
     saveData();
-    renderFolderContents(currentFolder);
     
     // 清空选中状态
     selectedItems.clear();
+}
+
+// 批量移动项目到上级文件夹
+function moveItemsToParentFolder(indices) {
+    if (currentFolderPath.length === 0) return; // 已经在根目录
     
-    // 重新渲染父文件夹，确保上级目录能看到新添加的项目
-    if (parentFolder === appData) {
-        // 如果父文件夹是根目录，不需要重新渲染，因为当前不在根目录
+    // 获取当前文件夹
+    const currentFolder = getFolderByPath(currentFolderPath);
+    // 获取父文件夹
+    let parentFolder;
+    if (currentFolderPath.length === 1) {
+        // 父文件夹是根目录
+        parentFolder = appData;
     } else {
-        // 重新渲染父文件夹
+        // 父文件夹是上一级文件夹
         const parentPath = currentFolderPath.slice(0, -1);
-        const parentFolderObj = getFolderByPath(parentPath);
-        // 注意：不要在这里调用renderFolderContents，因为会切换到父文件夹视图
+        parentFolder = getFolderByPath(parentPath);
     }
+    
+    // 按索引降序排序，避免删除时索引变化
+    indices.sort((a, b) => b - a);
+    const itemsToMove = [];
+    
+    // 收集要移动的项目
+    for (const index of indices) {
+        const item = currentFolder.children[index];
+        if (item) {
+            // 检查是否将文件夹拖入其自身
+            if (item === currentFolder) {
+                continue; // 跳过将文件夹拖入其自身
+            }
+            itemsToMove.unshift(item); // 保持原顺序
+            currentFolder.children.splice(index, 1);
+        }
+    }
+    
+    // 将项目添加到父文件夹（保持原顺序）
+    for (const item of itemsToMove) {
+        if (parentFolder === appData) {
+            parentFolder.links.push(item);
+        } else {
+            parentFolder.children.push(item);
+        }
+    }
+    
+    // 保存数据，triggerDataRefresh会自动处理渲染
+    saveData();
+    
+    // 清空选中状态
+    selectedItems.clear();
 }
 
 function deleteFolderItem(index) {
@@ -1086,35 +1643,66 @@ function handleDragOver(e) {
         const width = rect.width;
         const height = rect.height;
         
+        // 检查是否是多选拖拽
+        const isMultiple = e.dataTransfer.getData('isMultiple') === 'true';
+        let isTargetInSelected = false;
+        
+        if (isMultiple) {
+            // 检查目标是否在选中的项目中
+            try {
+                const selectedIndices = JSON.parse(e.dataTransfer.getData('text/plain'));
+                const targetIndex = parseInt(target.dataset.index);
+                isTargetInSelected = selectedIndices.includes(targetIndex);
+            } catch (error) {
+                console.error('解析选中项目失败:', error);
+            }
+        }
+        
         if (isSameContainer) {
             // 目标在同一个容器内，允许排序或拖入文件夹
-            e.dataTransfer.dropEffect = 'move';
             if (target.dataset.type === 'folder' && x > width * 0.3 && x < width * 0.7 && y > height * 0.3 && y < height * 0.7) {
-                // 目标是文件夹且鼠标在水平和垂直中间区域，允许拖入
+                // 目标是文件夹且鼠标在水平和垂直中间区域
+                if (isMultiple && isTargetInSelected) {
+                    // 多选时，目标在选中项目中，禁止拖入
+                    e.dataTransfer.dropEffect = 'none';
+                } else {
+                    // 允许拖入
+                    e.dataTransfer.dropEffect = 'move';
+                    target.style.borderColor = 'var(--accent-color)';
+                    target.style.borderWidth = '2px';
+                    target.style.backgroundColor = 'var(--card-hover)';
+                    target.style.boxShadow = '0 0 10px rgba(0, 123, 255, 0.5)';
+                    target.style.transform = 'scale(1.05)';
+                    target.style.transition = 'all 0.2s ease';
+                }
+            } else if (x < width * 0.3) {
+                // 鼠标在左侧30%区域，显示左边框高亮
+                e.dataTransfer.dropEffect = 'move';
+                target.style.borderLeft = '3px solid var(--accent-color)';
+                target.style.backgroundColor = 'var(--card-hover)';
+            } else if (x > width * 0.7) {
+                // 鼠标在右侧30%区域，显示右边框高亮
+                e.dataTransfer.dropEffect = 'move';
+                target.style.borderRight = '3px solid var(--accent-color)';
+                target.style.backgroundColor = 'var(--card-hover)';
+            } else {
+                e.dataTransfer.dropEffect = 'move';
+            }
+        } else if (target.dataset.type === 'folder' && x > width * 0.3 && x < width * 0.7 && y > height * 0.3 && y < height * 0.7) {
+            // 目标是文件夹且鼠标在水平和垂直中间区域
+            if (isMultiple && isTargetInSelected) {
+                // 多选时，目标在选中项目中，禁止拖入
+                e.dataTransfer.dropEffect = 'none';
+            } else {
+                // 允许拖入
+                e.dataTransfer.dropEffect = 'move';
                 target.style.borderColor = 'var(--accent-color)';
                 target.style.borderWidth = '2px';
                 target.style.backgroundColor = 'var(--card-hover)';
                 target.style.boxShadow = '0 0 10px rgba(0, 123, 255, 0.5)';
                 target.style.transform = 'scale(1.05)';
                 target.style.transition = 'all 0.2s ease';
-            } else if (x < width * 0.3) {
-                // 鼠标在左侧30%区域，显示左边框高亮
-                target.style.borderLeft = '3px solid var(--accent-color)';
-                target.style.backgroundColor = 'var(--card-hover)';
-            } else if (x > width * 0.7) {
-                // 鼠标在右侧30%区域，显示右边框高亮
-                target.style.borderRight = '3px solid var(--accent-color)';
-                target.style.backgroundColor = 'var(--card-hover)';
             }
-        } else if (target.dataset.type === 'folder' && x > width * 0.3 && x < width * 0.7 && y > height * 0.3 && y < height * 0.7) {
-            // 目标是文件夹且鼠标在水平和垂直中间区域，允许拖入
-            e.dataTransfer.dropEffect = 'move';
-            target.style.borderColor = 'var(--accent-color)';
-            target.style.borderWidth = '2px';
-            target.style.backgroundColor = 'var(--card-hover)';
-            target.style.boxShadow = '0 0 10px rgba(0, 123, 255, 0.5)';
-            target.style.transform = 'scale(1.05)';
-            target.style.transition = 'all 0.2s ease';
         } else {
             // 目标不在同一个容器内且不是文件夹，禁止拖入
             e.dataTransfer.dropEffect = 'none';
@@ -1175,6 +1763,36 @@ function handleDrop(e) {
     const isMultiple = e.dataTransfer.getData('isMultiple') === 'true';
     let itemsToMove = [];
     let sourceContainer;
+    let targetFolder = null;
+    
+    // 检查是否要拖拽到文件夹中
+    if (isDroppingToFolder) {
+        // 获取目标文件夹
+        if (dragDstPath.length === 0) {
+            // 目标是根目录中的文件夹
+            targetFolder = appData.links[dragDstIndex];
+        } else {
+            // 目标是文件夹中的文件夹
+            const parentFolder = getFolderByPath(dragDstPath);
+            targetFolder = parentFolder.children[dragDstIndex];
+        }
+        
+        // 检查是否是多选拖拽，且目标文件夹在选中的项目中
+        if (isMultiple) {
+            try {
+                const selectedIndices = JSON.parse(e.dataTransfer.getData('text/plain'));
+                // 检查目标文件夹是否在选中的项目中
+                const targetIndex = parseInt(target.dataset.index);
+                if (selectedIndices.includes(targetIndex)) {
+                    // 目标文件夹在选中的项目中，取消操作
+                    return false;
+                }
+            } catch (error) {
+                console.error('解析选中项目失败:', error);
+                return false;
+            }
+        }
+    }
     
     if (isMultiple) {
         // 处理多选拖拽
@@ -1222,81 +1840,50 @@ function handleDrop(e) {
     }
     
     // 检查是否要拖拽到文件夹中
-    if (isDroppingToFolder) {
-        // 获取目标文件夹
-        let targetFolder;
-        if (dragDstPath.length === 0) {
-            // 目标是根目录中的文件夹
-            targetFolder = appData.links[dragDstIndex];
-        } else {
-            // 目标是文件夹中的文件夹
-            const parentFolder = getFolderByPath(dragDstPath);
-            targetFolder = parentFolder.children[dragDstIndex];
-        }
-        
+    if (isDroppingToFolder && targetFolder) {
         // 检查循环引用
-        for (const item of itemsToMove) {
-            if (isCircularReference(item, targetFolder)) {
-                alert('不能将文件夹拖入其子文件夹中，会形成循环引用');
-                return false;
+            for (const item of itemsToMove) {
+                if (isCircularReference(item, targetFolder)) {
+                    alert('不能将文件夹拖入其子文件夹中，会形成循环引用');
+                    return false;
+                }
+                // 检查是否将文件夹拖入其自身
+                if (item === targetFolder) {
+                    alert('不能将文件夹拖入其自身');
+                    return false;
+                }
             }
-        }
         
         // 添加到目标文件夹
         for (const item of itemsToMove) {
             targetFolder.children.push(item);
         }
         
-        // 保存数据并重新渲染
+        // 保存数据，triggerDataRefresh会自动处理渲染
         saveData();
-        
-        // 重新渲染源容器
-        if (dragSrcPath.length === 0) {
-            renderIcons();
-        } else {
-            const sourceFolder = getFolderByPath(dragSrcPath);
-            renderFolderContents(sourceFolder);
-        }
         
         // 清空选中状态
         selectedItems.clear();
-        
-        // 重新渲染目标容器
-        if (dragDstPath.length === 0) {
-            renderIcons();
-        } else {
-            const parentFolder = getFolderByPath(dragDstPath);
-            renderFolderContents(parentFolder);
-        }
-        
-        // 确保当前视图正确更新
-        if (currentFolderPath.length === 0) {
-            renderIcons();
-        } else {
-            const currentFolder = getFolderByPath(currentFolderPath);
-            renderFolderContents(currentFolder);
-        }
     } else if (isSameContainer) {
         // 处理同一个容器内的排序
+        // 调整目标索引，因为删除源项目后目标位置可能变化
+        let adjustedDstIndex = dragDstIndex;
+        if (dragSrcIndex < dragDstIndex) {
+            // 源在目标前面，删除源后目标索引前移
+            adjustedDstIndex--;
+        }
+        
         // 根据鼠标位置确定插入位置
-        let insertIndex = dragDstIndex;
+        let insertIndex = adjustedDstIndex;
         if (x < width * 0.3) {
             // 鼠标在左侧30%区域，插入到目标之前
-            if (dragSrcIndex < dragDstIndex) {
-                insertIndex--;
-            }
+            insertIndex = adjustedDstIndex;
         } else if (x > width * 0.7) {
             // 鼠标在右侧30%区域，插入到目标之后
-            insertIndex = dragDstIndex + 1;
-            if (dragSrcIndex > dragDstIndex) {
-                insertIndex--;
-            }
+            insertIndex = adjustedDstIndex + 1;
         } else {
             // 鼠标在中间区域，默认插入到目标之后
-            insertIndex = dragDstIndex + 1;
-            if (dragSrcIndex > dragDstIndex) {
-                insertIndex--;
-            }
+            insertIndex = adjustedDstIndex + 1;
         }
         
         if (!isMultiple) {
@@ -1327,12 +1914,16 @@ function handleDrop(e) {
             }
             insertIndex -= itemsBeforeTarget;
             
-            // 插入项目
+            // 插入项目（保持原顺序）
             for (const item of itemsToMove) {
                 // 检查是否存在循环引用
                 if (item.type === 'folder' && dragDstType === 'folder') {
                     if (isCircularReference(item, dragDstFolder)) {
                         continue; // 跳过循环引用的文件夹
+                    }
+                    // 检查是否将文件夹拖入其自身
+                    if (item === dragDstFolder) {
+                        continue; // 跳过将文件夹拖入其自身
                     }
                 }
                 
@@ -1382,6 +1973,12 @@ function handleDragEnd(e) {
     
     // 清空选中状态
     selectedItems.clear();
+    
+    // 如果数据已被 triggerDataRefresh 刷新，则跳过重新渲染，避免重复渲染导致闪现
+    if (isDataRefreshed) {
+        isDataRefreshed = false;
+        return false;
+    }
     
     // 重新渲染当前视图，确保选中状态被正确清除
     if (currentFolderPath.length === 0) {
@@ -1777,7 +2374,7 @@ function renderFolderContents(folder) {
     const backCard = document.createElement('div');
     backCard.className = 'icon-card';
     
-    if (isSortMode) {
+    if (isSortMode && !isIconSearchMode) {
         // 编辑模式下，返回按钮变为"拖到上级"功能
         backCard.onclick = () => {
             // 编辑模式下不执行返回操作
@@ -1805,11 +2402,7 @@ function renderFolderContents(folder) {
                 // 处理多选拖拽
                 try {
                     const selectedIndices = JSON.parse(e.dataTransfer.getData('text/plain'));
-                    // 按索引降序排序，避免删除时索引变化
-                    selectedIndices.sort((a, b) => b - a);
-                    for (const index of selectedIndices) {
-                        moveItemToParentFolder(index);
-                    }
+                    moveItemsToParentFolder(selectedIndices);
                 } catch (error) {
                     console.error('解析选中项目失败:', error);
                 }
@@ -1908,9 +2501,9 @@ function renderFolderContents(folder) {
     folder.children.forEach((item, index) => {
         const card = document.createElement('div');
         card.className = 'icon-card';
-        if (isSortMode) card.classList.add('sorting-mode');
+        if (isSortMode && !isIconSearchMode) card.classList.add('sorting-mode');
         
-        if (isSortMode) {
+        if (isSortMode && !isIconSearchMode) {
             card.draggable = true;
             card.dataset.index = index;
             card.dataset.type = item.type || 'link';
@@ -2601,13 +3194,71 @@ function initSettingsListeners() {
         updateSetting('showQuickAdd', !currentState, renderIcons);
         syncToggle(button, !currentState);
     };
+    
+    // Hide Icons
+    document.getElementById('hide-icons-toggle').onclick = () => {
+        const button = document.getElementById('hide-icons-toggle');
+        const currentState = button.dataset.state === 'on';
+        updateSetting('hideIcons', !currentState, applyHideIcons);
+        syncToggle(button, !currentState);
+    };
 
     // Default Search Engine
     document.getElementById('default-search-engine').onchange = (e) => {
         updateSetting('defaultSearchEngine', e.target.value, () => {
-            document.getElementById('search-engine-select').value = e.target.value;
+            // 更新自定义选择器
+            const searchSelect = document.getElementById('search-engine-select');
+            const selectValue = searchSelect.querySelector('.select-value');
+            const dropdown = searchSelect.nextElementSibling;
+            
+            if (selectValue && dropdown) {
+                searchSelect.dataset.value = e.target.value;
+                const engine = allEngines[e.target.value];
+                if (engine) {
+                    selectValue.textContent = engine.name;
+                    
+                    // 更新下拉菜单中的选中状态
+                    dropdown.querySelectorAll('.dropdown-option').forEach(opt => {
+                        opt.classList.remove('selected');
+                        if (opt.dataset.value === e.target.value) {
+                            opt.classList.add('selected');
+                        }
+                    });
+                }
+            }
+            
             updateSearchPlaceholder();
         });
+    };
+    
+    // 快捷搜索图标开关
+    document.getElementById('quick-search-toggle').onclick = () => {
+        const button = document.getElementById('quick-search-toggle');
+        const currentState = button.dataset.state === 'on';
+        updateSetting('quickSearch', !currentState);
+        syncToggle(button, !currentState);
+    };
+    
+    // 搜索时临时不隐藏图标开关
+    document.getElementById('search-show-icons-toggle').onclick = () => {
+        const button = document.getElementById('search-show-icons-toggle');
+        const currentState = button.dataset.state === 'on';
+        updateSetting('searchShowIcons', !currentState);
+        syncToggle(button, !currentState);
+    };
+    
+    // 搜索联想功能设置
+    document.getElementById('suggestions-off').onclick = () => {
+        updateSetting('searchSuggestions', 0);
+        syncToggleGroup(document.querySelectorAll('#suggestions-off, #suggestions-5, #suggestions-10'), 'suggestions-off');
+    };
+    document.getElementById('suggestions-5').onclick = () => {
+        updateSetting('searchSuggestions', 5);
+        syncToggleGroup(document.querySelectorAll('#suggestions-off, #suggestions-5, #suggestions-10'), 'suggestions-5');
+    };
+    document.getElementById('suggestions-10').onclick = () => {
+        updateSetting('searchSuggestions', 10);
+        syncToggleGroup(document.querySelectorAll('#suggestions-off, #suggestions-5, #suggestions-10'), 'suggestions-10');
     };
 
     // --- Manual-saving Actions --- //
@@ -2917,9 +3568,8 @@ function initBookmarkImport() {
         }
         
         // 递归解析文件夹结构
-        function parseNode(node, parentPath = '') {
+        function parseNode(node, parentFolder = null) {
             const items = [];
-            let currentFolder = null;
             
             for (let child of node.children) {
                 if (child.tagName === 'DT') {
@@ -2930,19 +3580,17 @@ function initBookmarkImport() {
                     if (h3) {
                         // 文件夹
                         const folderName = h3.textContent.trim();
-                        const folderPath = parentPath ? `${parentPath}/${folderName}` : folderName;
-                        currentFolder = {
+                        const folder = {
                             type: 'folder',
                             name: folderName,
-                            path: folderPath,
                             children: []
                         };
-                        items.push(currentFolder);
+                        items.push(folder);
                         
                         // 解析文件夹内的内容
                         if (dl) {
-                            const folderItems = parseNode(dl, folderPath);
-                            currentFolder.children = folderItems;
+                            const folderItems = parseNode(dl, folder);
+                            folder.children = folderItems;
                         }
                     } else if (a) {
                         // 书签
@@ -2954,7 +3602,7 @@ function initBookmarkImport() {
                                 type: 'bookmark',
                                 name: title,
                                 url: href,
-                                path: parentPath
+                                parent: parentFolder
                             });
                         }
                     }
@@ -3004,9 +3652,6 @@ function initBookmarkImport() {
                     html += `<li style="padding: 5px; border-bottom: 1px solid #eee;">`;
                     html += `<strong>${item.name}</strong><br>`;
                     html += `<small style="color: #888;">${item.url}</small>`;
-                    if (item.path) {
-                        html += `<br><small style="color: #6c757d;">文件夹: ${item.path}</small>`;
-                    }
                     html += `</li>`;
                 }
             });
@@ -3053,35 +3698,19 @@ function initBookmarkImport() {
             appData.links = [];
         }
 
-        // 查找或创建文件夹
-        function findOrCreateFolder(path) {
-            if (!path) return appData.links;
-            
-            const pathParts = path.split('/');
-            let currentFolder = appData.links;
-            
-            pathParts.forEach(folderName => {
-                let folder = currentFolder.find(item => item.type === 'folder' && item.name === folderName);
-                if (!folder) {
-                    folder = { name: folderName, type: 'folder', children: [] };
-                    currentFolder.push(folder);
-                }
-                currentFolder = folder.children;
-            });
-            
-            return currentFolder;
-        }
-
         // 递归导入书签
-        function importItems(items) {
+        function importItems(items, targetFolder = appData.links) {
             items.forEach(item => {
                 if (item.type === 'folder' && item.children) {
-                    // 导入文件夹内的内容
-                    importItems(item.children);
+                    // 查找或创建文件夹
+                    let folder = targetFolder.find(f => f.type === 'folder' && f.name === item.name);
+                    if (!folder) {
+                        folder = { name: item.name, type: 'folder', children: [] };
+                        targetFolder.push(folder);
+                    }
+                    // 递归导入子项
+                    importItems(item.children, folder.children);
                 } else if (item.type === 'bookmark') {
-                    // 查找或创建目标文件夹
-                    const targetFolder = findOrCreateFolder(item.path);
-                    
                     // 检查是否已存在相同的链接
                     const existingIndex = targetFolder.findIndex(link => link.url === item.url);
                     if (existingIndex === -1 || mode === 'full') {
@@ -3181,6 +3810,16 @@ function syncSettingsUI() {
     syncToggle(document.getElementById('header-shadow-toggle'), appData.headerShadow);
     syncToggle(document.getElementById('quick-add-toggle'), appData.showQuickAdd);
     syncToggle(document.getElementById('weather-toggle'), appData.showWeather);
+    syncToggle(document.getElementById('hide-icons-toggle'), appData.hideIcons);
+    syncToggle(document.getElementById('quick-search-toggle'), appData.quickSearch);
+    syncToggle(document.getElementById('search-show-icons-toggle'), appData.searchShowIcons);
+    
+    // Sync search suggestions setting
+    const suggestionsValue = appData.searchSuggestions;
+    syncToggleGroup(document.querySelectorAll('#suggestions-off, #suggestions-5, #suggestions-10'), 
+        suggestionsValue === 0 ? 'suggestions-off' : 
+        suggestionsValue === 5 ? 'suggestions-5' : 'suggestions-10');
+
 
     // Sync weather specific UI
     syncWeatherSettingsUI();
@@ -3199,6 +3838,16 @@ function syncToggle(button, isOn) {
         button.dataset.state = 'off';
         button.textContent = '关';
     }
+}
+
+function syncToggleGroup(buttons, activeId) {
+    buttons.forEach(button => {
+        if (button.id === activeId) {
+            button.classList.add('active');
+        } else {
+            button.classList.remove('active');
+        }
+    });
 }
 
 function syncWeatherSettingsUI() {
@@ -3347,3 +3996,72 @@ window.addEventListener('orientationchange', function() {
         }, 100);
     }
 });
+
+// 键盘事件监听器，实现Ctrl+F调用图标搜索，按esc退出
+window.addEventListener('keydown', function(e) {
+            // Ctrl+F 调用图标搜索
+            if (e.ctrlKey && e.key === 'f' && appData.quickSearch) {
+                e.preventDefault();
+                // 切换到图标搜索引擎
+                const searchSelect = document.getElementById('search-engine-select');
+                if (searchSelect) {
+                    searchSelect.dataset.value = 'icon';
+                    const selectValue = searchSelect.querySelector('.select-value');
+                    if (selectValue) {
+                        selectValue.textContent = '图标';
+                    }
+                    // 更新搜索占位符
+                    updateSearchPlaceholder();
+                    // 隐藏管理按钮
+                    const enableBtn = document.getElementById('enable-sort-btn');
+                    if (enableBtn) enableBtn.style.visibility = 'hidden';
+                    // 聚焦搜索输入框
+                    const searchInput = document.getElementById('search-input');
+                    if (searchInput) {
+                        searchInput.focus();
+                    }
+                    // 设置图标搜索模式
+                    isIconSearchMode = true;
+                    isIconSearchActive = true; // 标记当前处于图标搜索模式
+                    
+                    // 应用隐藏图标设置（此时会显示图标，因为isIconSearchActive为true）
+                    applyHideIcons();
+                }
+            }
+            
+            // Esc 重置到默认搜索引擎
+            if (e.key === 'Escape') {
+                // 退出图标搜索模式
+                exitIconSearchMode();
+                // 切换回默认搜索引擎
+                const searchSelect = document.getElementById('search-engine-select');
+                if (searchSelect) {
+                    searchSelect.dataset.value = appData.defaultSearchEngine;
+                    const selectValue = searchSelect.querySelector('.select-value');
+                    if (selectValue) {
+                        const engine = allEngines[appData.defaultSearchEngine];
+                        if (engine) {
+                            selectValue.textContent = engine.name;
+                        }
+                    }
+                    // 更新搜索占位符
+                    updateSearchPlaceholder();
+                    // 显示管理按钮
+                    const enableBtn = document.getElementById('enable-sort-btn');
+                    if (enableBtn) enableBtn.style.visibility = 'visible';
+                }
+                // 重置图标搜索模式
+                isIconSearchMode = false;
+                isIconSearchActive = false; // 标记当前不处于图标搜索模式
+                // 隐藏搜索联想
+                hideSearchSuggestions();
+                // 重新渲染图标（根据当前的隐藏图标设置）
+                if (currentFolderPath.length === 0) {
+                    renderIcons();
+                } else {
+                    const currentFolder = getFolderByPath(currentFolderPath);
+                    renderFolderContents(currentFolder);
+                }
+                updateCurrentFolderDisplay();
+            }
+        });

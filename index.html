@@ -20,9 +20,21 @@
         <div class="search-area">
             <form id="search-form" onsubmit="return handleSearch(event)">
                 <div class="search-wrapper">
-                    <select id="search-engine-select" class="search-select"></select>
-                    <input type="text" id="search-input" placeholder="搜索..." autocomplete="off">
-                    <button type="submit" class="search-btn">🔍</button>
+                    <div class="custom-select-wrapper">
+                        <div id="search-engine-select" class="custom-select">
+                            <span class="select-value"></span>
+                            <span class="select-arrow">▼</span>
+                        </div>
+                        <div class="select-dropdown">
+                            <div class="dropdown-options"></div>
+                        </div>
+                    </div>
+                    <div class="search-input-container">
+                        <input type="text" id="search-input" placeholder="搜索..." autocomplete="off">
+                        <button type="submit" class="search-btn">🔍</button>
+                        <!-- 搜索联想结果 -->
+                        <div id="search-suggestions" class="search-suggestions"></div>
+                    </div>
                 </div>
             </form>
         </div>
@@ -112,6 +124,23 @@
                                     <button id="header-shadow-toggle" class="toggle-switch-btn" data-state="off">关</button>
                                 </div>
                             </div>
+                        </div>
+                        
+                        <!-- 1.6 隐藏图标 -->
+                        <div class="setting-group">
+                            <div class="setting-item">
+                                <label style="font-weight:600;">隐藏图标</label>
+                                <button id="hide-icons-toggle" class="toggle-switch-btn" data-state="off">关</button>
+                            </div>
+                        </div>
+                        
+                        <!-- 1.7 搜索时临时不隐藏图标 -->
+                        <div class="setting-group">
+                            <div class="setting-item">
+                                <label style="font-weight:600;">搜索图标时临时显示图标</label>
+                                <button id="search-show-icons-toggle" class="toggle-switch-btn" data-state="on">开</button>
+                            </div>
+                            <small style="color:#888; display:block; margin-top:5px;">启用后，启动图标搜索时会临时显示图标</small>
                         </div>
                         
                         <!-- 1.6 背景设置 -->
@@ -215,6 +244,26 @@
                                     <input type="text" id="weather-manual-city" class="full-width-input" placeholder="输入城市名称，如：北京">
                                 </div>
                             </div>
+                        </div>
+                        
+                        <!-- 3.2 快捷搜索图标 -->
+                        <div class="setting-group">
+                            <div class="setting-item">
+                                <label style="font-weight:600;">快捷搜索图标</label>
+                                <button id="quick-search-toggle" class="toggle-switch-btn" data-state="on">开</button>
+                            </div>
+                            <small style="color:#888; display:block; margin-top:5px;">启用后，按 Ctrl+F 可快速调用图标搜索</small>
+                        </div>
+                        
+                        <!-- 3.3 搜索联想功能 -->
+                        <div class="setting-group">
+                            <label>搜索联想功能</label>
+                            <div class="toggle-group">
+                                <button id="suggestions-off" class="toggle-btn">关闭</button>
+                                <button id="suggestions-5" class="toggle-btn">5词条</button>
+                                <button id="suggestions-10" class="toggle-btn">10词条</button>
+                            </div>
+                            <small style="color:#888; display:block; margin-top:5px;">搜索引擎联想默认调用百度API，图标搜索不调用联想</small>
                         </div>
                         
                         <!-- 3.2 书签导入 -->
@@ -376,11 +425,11 @@
                 <input type="hidden" id="engine-edit-key" value="">
                 <div class="setting-group">
                     <label>引擎名称</label>
-                    <input type="text" id="engine-name-input" placeholder="如：搜狗">
+                    <input type="text" id="engine-name-input" placeholder="如：搜狗" class="full-width-input">
                 </div>
                 <div class="setting-group">
                     <label>搜索 URL 模板</label>
-                    <input type="text" id="engine-url-input" placeholder="如：https://www.sogou.com/web?query=">
+                    <input type="text" id="engine-url-input" placeholder="如：https://www.sogou.com/web?query=" class="full-width-input">
                 </div>
                 <div class="input-row" style="justify-content: flex-end;">
                     <button onclick="closeEngineModal()" class="btn-small" style="background:#666;">取消</button>
