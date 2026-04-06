@@ -21,9 +21,6 @@ const DEFAULTS = {
     weatherManualCity: "",
     weatherCache: null,
     hideIcons: false,
-    quickSearch: true, // 快捷搜索图标开关
-    searchSuggestions: 5, // 搜索联想功能，0=关闭, 5=5词条, 10=10词条
-    searchShowIcons: true, // 搜索时临时不隐藏图标
     storage: {
         type: "local", // local or cloudflare
         cloudflare: {
@@ -151,9 +148,6 @@ function ensureDataIntegrity() {
     if(!appData.weatherLocationMode) appData.weatherLocationMode = DEFAULTS.weatherLocationMode;
     if(!appData.weatherManualCity) appData.weatherManualCity = DEFAULTS.weatherManualCity;
     if(appData.hideIcons === undefined) appData.hideIcons = DEFAULTS.hideIcons;
-    if(appData.quickSearch === undefined) appData.quickSearch = DEFAULTS.quickSearch;
-    if(appData.searchSuggestions === undefined) appData.searchSuggestions = DEFAULTS.searchSuggestions;
-    if(appData.searchShowIcons === undefined) appData.searchShowIcons = DEFAULTS.searchShowIcons;
     if(!appData.storage) appData.storage = JSON.parse(JSON.stringify(DEFAULTS.storage));
     if(!appData.storage.cloudflare) appData.storage.cloudflare = JSON.parse(JSON.stringify(DEFAULTS.storage.cloudflare));
     // 保留已有的CloudFlare配置，不被默认值覆盖
@@ -344,7 +338,7 @@ async function saveToCloudflareKV() {
 }
 
 function mergeEngines() {
-    allEngines = { ...DEFAULT_ENGINES, ...appData.customEngines, icon: { name: "图标", url: "icon:" } };
+    allEngines = { ...DEFAULT_ENGINES, ...appData.customEngines };
 }
 
 function renderTitle() {
@@ -376,211 +370,16 @@ function renderSearchDropdowns() {
         }
     }
     
-    // 渲染默认选择器（设置页面）- 不包含图标搜索
+    // 渲染默认选择器（设置页面）
     defaultSelect.innerHTML = '';
     for (const [key, engine] of Object.entries(allEngines)) {
-        // 跳过图标搜索选项
-        if (key === 'icon') {
-            continue;
-        }
         const opt = document.createElement('option');
         opt.value = key;
         opt.text = engine.name;
         defaultSelect.appendChild(opt);
     }
-    // 确保默认值不是图标搜索
-    if (appData.defaultSearchEngine === 'icon') {
-        appData.defaultSearchEngine = DEFAULTS.defaultSearchEngine;
-    }
     defaultSelect.value = appData.defaultSearchEngine;
     updateSearchPlaceholder();
-    
-    // 初始化搜索输入框事件
-    initSearchInputEvents();
-}
-
-// 初始化搜索输入框事件
-function initSearchInputEvents() {
-    const searchInput = document.getElementById('search-input');
-    const suggestionsContainer = document.getElementById('search-suggestions');
-    if (searchInput) {
-        // 输入事件监听器
-        searchInput.addEventListener('input', function(e) {
-            const query = e.target.value.trim();
-            if (query.length >= 2 && appData.searchSuggestions > 0) {
-                // 清除之前的超时
-                if (searchSuggestionsTimeout) {
-                    clearTimeout(searchSuggestionsTimeout);
-                }
-                
-                // 设置新的超时，实现输入防抖
-                searchSuggestionsTimeout = setTimeout(() => {
-                    getSearchSuggestions(query);
-                }, 300);
-            } else {
-                // 隐藏联想结果
-                hideSearchSuggestions();
-            }
-        });
-        
-        // 点击事件，阻止冒泡
-        searchInput.addEventListener('click', function(e) {
-            e.stopPropagation();
-        });
-        
-        // 键盘事件
-        searchInput.addEventListener('keydown', function(e) {
-            const suggestions = document.querySelectorAll('.search-suggestion-item');
-            const activeIndex = Array.from(suggestions).findIndex(item => item.classList.contains('active'));
-            
-            switch (e.key) {
-                case 'ArrowDown':
-                    e.preventDefault();
-                    if (activeIndex < suggestions.length - 1) {
-                        if (activeIndex >= 0) {
-                            suggestions[activeIndex].classList.remove('active');
-                        }
-                        suggestions[activeIndex + 1].classList.add('active');
-                        suggestions[activeIndex + 1].scrollIntoView({ behavior: 'smooth', block: 'nearest' });
-                    }
-                    break;
-                case 'ArrowUp':
-                    e.preventDefault();
-                    if (activeIndex > 0) {
-                        suggestions[activeIndex].classList.remove('active');
-                        suggestions[activeIndex - 1].classList.add('active');
-                        suggestions[activeIndex - 1].scrollIntoView({ behavior: 'smooth', block: 'nearest' });
-                    }
-                    break;
-                case 'Enter':
-                    e.preventDefault();
-                    if (activeIndex >= 0) {
-                        suggestions[activeIndex].click();
-                    } else {
-                        // 执行搜索
-                        handleSearch(e);
-                    }
-                    break;
-                case 'Escape':
-                    hideSearchSuggestions();
-                    break;
-            }
-        });
-    }
-    
-    // 为搜索联想容器添加点击事件，阻止冒泡
-    if (suggestionsContainer) {
-        suggestionsContainer.addEventListener('click', function(e) {
-            e.stopPropagation();
-        });
-    }
-    
-    // 点击页面其他地方隐藏联想结果
-    document.addEventListener('click', function() {
-        hideSearchSuggestions();
-    });
-}
-
-// 获取搜索联想
-function getSearchSuggestions(query) {
-    const searchSelect = document.getElementById('search-engine-select');
-    const selectedValue = searchSelect.dataset.value || appData.defaultSearchEngine;
-    
-    // 图标搜索时不调用联想
-    if (selectedValue === 'icon') {
-        return;
-    }
-    
-    // 检查搜索联想功能是否开启
-    if (appData.searchSuggestions <= 0) {
-        hideSearchSuggestions();
-        return;
-    }
-    
-    // 使用百度搜索联想API
-    try {
-        // 清除之前的脚本
-        const oldScript = document.getElementById('suggestion-script');
-        if (oldScript) {
-            oldScript.remove();
-        }
-        
-        // 创建新的脚本标签
-        const script = document.createElement('script');
-        script.id = 'suggestion-script';
-        script.src = `https://suggestion.baidu.com/su?wd=${encodeURIComponent(query)}&cb=handleBaiduSuggestion`;
-        document.body.appendChild(script);
-    } catch (error) {
-        console.error('获取搜索联想失败:', error);
-        hideSearchSuggestions();
-    }
-}
-
-// 处理百度搜索联想回调
-function handleBaiduSuggestion(data) {
-    try {
-        if (data && data.s && Array.isArray(data.s)) {
-            const suggestions = data.s;
-            // 根据设置限制联想数量
-            if (appData.searchSuggestions > 0) {
-                const limitedSuggestions = suggestions.slice(0, appData.searchSuggestions);
-                renderSearchSuggestions(limitedSuggestions);
-            } else {
-                // 搜索联想功能关闭
-                hideSearchSuggestions();
-            }
-        }
-    } catch (error) {
-        console.error('处理搜索联想失败:', error);
-        hideSearchSuggestions();
-    }
-}
-
-// 渲染搜索联想结果
-function renderSearchSuggestions(suggestions) {
-    const suggestionsContainer = document.getElementById('search-suggestions');
-    if (!suggestionsContainer) return;
-    
-    suggestionsContainer.innerHTML = '';
-    
-    if (suggestions.length === 0) {
-        hideSearchSuggestions();
-        return;
-    }
-    
-    suggestions.forEach(suggestion => {
-        const item = document.createElement('div');
-        item.className = 'search-suggestion-item';
-        item.innerHTML = `
-            <span class="suggestion-icon">🔍</span>
-            <span class="suggestion-text">${suggestion}</span>
-        `;
-        
-        // 点击联想项
-        item.addEventListener('click', function() {
-            const searchInput = document.getElementById('search-input');
-            if (searchInput) {
-                searchInput.value = suggestion;
-                hideSearchSuggestions();
-                // 执行搜索
-                const event = new Event('submit');
-                document.getElementById('search-form').dispatchEvent(event);
-            }
-        });
-        
-        suggestionsContainer.appendChild(item);
-    });
-    
-    // 显示联想结果
-    suggestionsContainer.classList.add('show');
-}
-
-// 隐藏搜索联想结果
-function hideSearchSuggestions() {
-    const suggestionsContainer = document.getElementById('search-suggestions');
-    if (suggestionsContainer) {
-        suggestionsContainer.classList.remove('show');
-    }
 }
 
 function updateSearchPlaceholder() {
@@ -621,26 +420,6 @@ document.addEventListener('DOMContentLoaded', () => {
             
             // 更新搜索占位符
             updateSearchPlaceholder();
-            
-            // 处理管理按钮的显示/隐藏
-            const enableBtn = document.getElementById('enable-sort-btn');
-            if (value === 'icon') {
-                // 切换到图标搜索引擎时隐藏管理按钮
-                if (enableBtn) enableBtn.style.visibility = 'hidden';
-                // 设置图标搜索模式
-                isIconSearchMode = true;
-                isIconSearchActive = true; // 标记当前处于图标搜索模式
-                // 应用隐藏图标设置（此时会显示图标，因为isIconSearchActive为true）
-                applyHideIcons();
-            } else {
-                // 切换到其他搜索引擎时显示管理按钮
-                if (enableBtn) enableBtn.style.visibility = 'visible';
-                // 重置图标搜索模式
-                isIconSearchMode = false;
-                isIconSearchActive = false; // 标记当前不处于图标搜索模式
-                // 应用隐藏图标设置（此时会根据appData.hideIcons的值来决定是否隐藏图标）
-                applyHideIcons();
-            }
         }
     });
     
@@ -651,13 +430,6 @@ document.addEventListener('DOMContentLoaded', () => {
     });
 });
 
-// 搜索状态管理
-let isIconSearchMode = false;
-let iconSearchResults = [];
-let searchSuggestionsTimeout = null;
-let currentSuggestions = [];
-let isIconSearchActive = false; // 标记当前是否处于图标搜索模式
-
 window.handleSearch = function(e) {
     e.preventDefault();
     const input = document.getElementById('search-input');
@@ -667,178 +439,11 @@ window.handleSearch = function(e) {
         const selectedValue = searchSelect.dataset.value || appData.defaultSearchEngine;
         const engine = allEngines[selectedValue];
         if (engine) {
-            if (selectedValue === 'icon') {
-                // 执行图标搜索
-                performIconSearch(query);
-            } else {
-                // 执行网页搜索
-                window.open(engine.url + encodeURIComponent(query), '_blank');
-                input.value = '';
-            }
+            window.open(engine.url + encodeURIComponent(query), '_blank');
+            input.value = '';
         }
     }
     return false;
-}
-
-// 执行图标搜索
-function performIconSearch(query) {
-    isIconSearchMode = true;
-    isIconSearchActive = true; // 标记当前处于图标搜索模式
-    iconSearchResults = [];
-    
-    // 应用隐藏图标设置（此时会显示图标，因为isIconSearchActive为true）
-    applyHideIcons();
-    
-    // 搜索根目录的图标和文件夹
-    searchIconsInCollection(appData.links, query, []);
-    
-    // 渲染搜索结果
-    renderIconSearchResults();
-    
-    // 禁用编辑功能
-    disableEditMode();
-}
-
-// 在集合中搜索图标
-function searchIconsInCollection(collection, query, path) {
-    collection.forEach((item, index) => {
-        // 检查名称是否匹配
-        if (item.name.toLowerCase().includes(query.toLowerCase())) {
-            iconSearchResults.push({
-                item: item,
-                path: [...path, index],
-                type: item.type || 'link'
-            });
-        }
-        
-        // 如果是文件夹，递归搜索
-        if (item.type === 'folder' && item.children) {
-            searchIconsInCollection(item.children, query, [...path, index]);
-        }
-    });
-}
-
-// 渲染图标搜索结果
-function renderIconSearchResults() {
-    const grid = document.getElementById('icon-grid');
-    grid.innerHTML = '';
-    
-    // 隐藏天气组件
-    const weatherWidget = document.getElementById('weather-widget');
-    if (weatherWidget) {
-        weatherWidget.style.display = 'none';
-    }
-    
-    // 添加返回按钮
-    const backCard = document.createElement('div');
-    backCard.className = 'icon-card';
-    backCard.onclick = () => {
-        exitIconSearchMode();
-    };
-    
-    const backIcon = document.createElement('div');
-    backIcon.className = 'icon-box';
-    backIcon.innerText = '⬅️';
-    
-    const backText = document.createElement('span');
-    backText.innerText = '返回';
-    
-    backCard.appendChild(backIcon);
-    backCard.appendChild(backText);
-    grid.appendChild(backCard);
-    
-    // 渲染搜索结果
-    iconSearchResults.forEach((result, index) => {
-        const card = document.createElement('div');
-        card.className = 'icon-card';
-        
-        // 设置点击事件
-        if (result.type === 'folder') {
-            card.onclick = () => {
-                // 进入文件夹
-                currentFolderPath = result.path;
-                const folder = getFolderByPath(currentFolderPath);
-                renderFolderContents(folder);
-                updateCurrentFolderDisplay();
-                isIconSearchMode = false;
-            };
-        } else {
-            card.onclick = () => {
-                // 打开网站
-                window.open(result.item.url, '_blank');
-            };
-        }
-        
-        const box = document.createElement('div');
-        box.className = 'icon-box';
-        if (result.type === 'folder') {
-            box.innerText = '📁';
-        } else {
-            const firstChar = result.item.name.charAt(0).toUpperCase();
-            box.innerText = firstChar;
-        }
-        card.appendChild(box);
-        
-        const span = document.createElement('span');
-        span.innerText = result.item.name;
-        card.appendChild(span);
-        
-        grid.appendChild(card);
-    });
-    
-    // 如果没有搜索结果
-    if (iconSearchResults.length === 0) {
-        const noResultCard = document.createElement('div');
-        noResultCard.className = 'icon-card';
-        noResultCard.style.textAlign = 'center';
-        noResultCard.style.pointerEvents = 'none';
-        
-        const box = document.createElement('div');
-        box.className = 'icon-box';
-        box.innerText = '🔍';
-        
-        const span = document.createElement('span');
-        span.innerText = '没有找到';
-        
-        noResultCard.appendChild(box);
-        noResultCard.appendChild(span);
-        grid.appendChild(noResultCard);
-    }
-}
-
-// 退出图标搜索模式
-function exitIconSearchMode() {
-    isIconSearchMode = false;
-    isIconSearchActive = false; // 标记当前不处于图标搜索模式
-    iconSearchResults = [];
-    
-    // 应用隐藏图标设置（此时会根据appData.hideIcons的值来决定是否隐藏图标）
-    applyHideIcons();
-    
-    // 重新渲染图标（根据当前的隐藏图标设置）
-    if (currentFolderPath.length === 0) {
-        renderIcons();
-    } else {
-        const currentFolder = getFolderByPath(currentFolderPath);
-        renderFolderContents(currentFolder);
-    }
-    updateCurrentFolderDisplay();
-}
-
-// 禁用编辑模式
-function disableEditMode() {
-    // 确保编辑模式被禁用
-    isSortMode = false;
-    isDragDropMode = false;
-    
-    // 隐藏编辑相关按钮
-    const enableBtn = document.getElementById('enable-sort-btn');
-    const toggleBtn = document.getElementById('toggle-sort-btn');
-    const selectAllBtn = document.getElementById('select-all-btn');
-    
-    if (enableBtn) enableBtn.style.visibility = 'hidden';
-    if (toggleBtn) toggleBtn.style.visibility = 'hidden';
-    if (selectAllBtn) selectAllBtn.style.visibility = 'hidden';
 }
 
 function renderIcons() {
@@ -856,9 +461,9 @@ function renderIcons() {
     appData.links.forEach((item, index) => {
         const card = document.createElement('div');
         card.className = 'icon-card';
-        if (isSortMode && !isIconSearchMode) card.classList.add('sorting-mode');
+        if (isSortMode) card.classList.add('sorting-mode');
         
-        if (isSortMode && !isIconSearchMode) {
+        if (isSortMode) {
             card.draggable = true;
             card.dataset.index = index;
             card.dataset.type = item.type || 'link';
@@ -1066,10 +671,7 @@ function applyHideIcons() {
     const container = document.querySelector('.container');
     const toggle = document.getElementById('hide-icons-toggle');
     
-    // 检查是否处于图标搜索模式
-    const shouldHideIcons = appData.hideIcons && !isIconSearchActive;
-    
-    if (shouldHideIcons) {
+    if (appData.hideIcons) {
         grid.classList.add('hidden');
         if (container) {
             container.classList.add('hide-icons');
@@ -1252,16 +854,11 @@ function initSortListeners() {
     const selectAllBtn = document.getElementById('select-all-btn');
     
     enableBtn.onclick = () => {
-        // 检查是否处于图标搜索模式
-        if (isIconSearchMode) {
-            return; // 在图标搜索模式下禁用编辑功能
-        }
-        
         isSortMode = true;
         isDragDropMode = true;
-        enableBtn.style.visibility = 'hidden';
-        toggleBtn.style.visibility = 'visible';
-        selectAllBtn.style.visibility = 'visible';
+        enableBtn.style.display = 'none';
+        toggleBtn.style.display = 'inline-block';
+        selectAllBtn.style.display = 'inline-block';
         selectedItems.clear(); // 清空选中状态
         updateCurrentFolderDisplay();
         
@@ -1285,9 +882,9 @@ function initSortListeners() {
     toggleBtn.onclick = () => {
         isSortMode = false;
         isDragDropMode = false;
-        toggleBtn.style.visibility = 'hidden';
-        selectAllBtn.style.visibility = 'hidden';
-        enableBtn.style.visibility = 'visible';
+        toggleBtn.style.display = 'none';
+        selectAllBtn.style.display = 'none';
+        enableBtn.style.display = 'inline-block';
         selectedItems.clear(); // 清空选中状态
         saveData();
         updateCurrentFolderDisplay();
@@ -1311,11 +908,6 @@ function initSortListeners() {
     
     // 全选/反全选按钮点击事件
     selectAllBtn.onclick = () => {
-        // 检查是否处于图标搜索模式
-        if (isIconSearchMode) {
-            return; // 在图标搜索模式下禁用编辑功能
-        }
-        
         const items = currentFolderPath.length === 0 ? appData.links : getFolderByPath(currentFolderPath).children;
         const allSelected = selectedItems.size === items.length;
         
@@ -1342,11 +934,6 @@ function initSortListeners() {
 
 // 切换项目选择状态
 function toggleItemSelection(index) {
-    // 检查是否处于图标搜索模式
-    if (isIconSearchMode) {
-        return; // 在图标搜索模式下禁用选择功能
-    }
-    
     if (selectedItems.has(index)) {
         selectedItems.delete(index);
     } else {
@@ -2374,7 +1961,7 @@ function renderFolderContents(folder) {
     const backCard = document.createElement('div');
     backCard.className = 'icon-card';
     
-    if (isSortMode && !isIconSearchMode) {
+    if (isSortMode) {
         // 编辑模式下，返回按钮变为"拖到上级"功能
         backCard.onclick = () => {
             // 编辑模式下不执行返回操作
@@ -2501,9 +2088,9 @@ function renderFolderContents(folder) {
     folder.children.forEach((item, index) => {
         const card = document.createElement('div');
         card.className = 'icon-card';
-        if (isSortMode && !isIconSearchMode) card.classList.add('sorting-mode');
+        if (isSortMode) card.classList.add('sorting-mode');
         
-        if (isSortMode && !isIconSearchMode) {
+        if (isSortMode) {
             card.draggable = true;
             card.dataset.index = index;
             card.dataset.type = item.type || 'link';
@@ -3230,36 +2817,6 @@ function initSettingsListeners() {
             updateSearchPlaceholder();
         });
     };
-    
-    // 快捷搜索图标开关
-    document.getElementById('quick-search-toggle').onclick = () => {
-        const button = document.getElementById('quick-search-toggle');
-        const currentState = button.dataset.state === 'on';
-        updateSetting('quickSearch', !currentState);
-        syncToggle(button, !currentState);
-    };
-    
-    // 搜索时临时不隐藏图标开关
-    document.getElementById('search-show-icons-toggle').onclick = () => {
-        const button = document.getElementById('search-show-icons-toggle');
-        const currentState = button.dataset.state === 'on';
-        updateSetting('searchShowIcons', !currentState);
-        syncToggle(button, !currentState);
-    };
-    
-    // 搜索联想功能设置
-    document.getElementById('suggestions-off').onclick = () => {
-        updateSetting('searchSuggestions', 0);
-        syncToggleGroup(document.querySelectorAll('#suggestions-off, #suggestions-5, #suggestions-10'), 'suggestions-off');
-    };
-    document.getElementById('suggestions-5').onclick = () => {
-        updateSetting('searchSuggestions', 5);
-        syncToggleGroup(document.querySelectorAll('#suggestions-off, #suggestions-5, #suggestions-10'), 'suggestions-5');
-    };
-    document.getElementById('suggestions-10').onclick = () => {
-        updateSetting('searchSuggestions', 10);
-        syncToggleGroup(document.querySelectorAll('#suggestions-off, #suggestions-5, #suggestions-10'), 'suggestions-10');
-    };
 
     // --- Manual-saving Actions --- //
 
@@ -3811,15 +3368,6 @@ function syncSettingsUI() {
     syncToggle(document.getElementById('quick-add-toggle'), appData.showQuickAdd);
     syncToggle(document.getElementById('weather-toggle'), appData.showWeather);
     syncToggle(document.getElementById('hide-icons-toggle'), appData.hideIcons);
-    syncToggle(document.getElementById('quick-search-toggle'), appData.quickSearch);
-    syncToggle(document.getElementById('search-show-icons-toggle'), appData.searchShowIcons);
-    
-    // Sync search suggestions setting
-    const suggestionsValue = appData.searchSuggestions;
-    syncToggleGroup(document.querySelectorAll('#suggestions-off, #suggestions-5, #suggestions-10'), 
-        suggestionsValue === 0 ? 'suggestions-off' : 
-        suggestionsValue === 5 ? 'suggestions-5' : 'suggestions-10');
-
 
     // Sync weather specific UI
     syncWeatherSettingsUI();
@@ -3838,16 +3386,6 @@ function syncToggle(button, isOn) {
         button.dataset.state = 'off';
         button.textContent = '关';
     }
-}
-
-function syncToggleGroup(buttons, activeId) {
-    buttons.forEach(button => {
-        if (button.id === activeId) {
-            button.classList.add('active');
-        } else {
-            button.classList.remove('active');
-        }
-    });
 }
 
 function syncWeatherSettingsUI() {
@@ -3996,72 +3534,3 @@ window.addEventListener('orientationchange', function() {
         }, 100);
     }
 });
-
-// 键盘事件监听器，实现Ctrl+F调用图标搜索，按esc退出
-window.addEventListener('keydown', function(e) {
-            // Ctrl+F 调用图标搜索
-            if (e.ctrlKey && e.key === 'f' && appData.quickSearch) {
-                e.preventDefault();
-                // 切换到图标搜索引擎
-                const searchSelect = document.getElementById('search-engine-select');
-                if (searchSelect) {
-                    searchSelect.dataset.value = 'icon';
-                    const selectValue = searchSelect.querySelector('.select-value');
-                    if (selectValue) {
-                        selectValue.textContent = '图标';
-                    }
-                    // 更新搜索占位符
-                    updateSearchPlaceholder();
-                    // 隐藏管理按钮
-                    const enableBtn = document.getElementById('enable-sort-btn');
-                    if (enableBtn) enableBtn.style.visibility = 'hidden';
-                    // 聚焦搜索输入框
-                    const searchInput = document.getElementById('search-input');
-                    if (searchInput) {
-                        searchInput.focus();
-                    }
-                    // 设置图标搜索模式
-                    isIconSearchMode = true;
-                    isIconSearchActive = true; // 标记当前处于图标搜索模式
-                    
-                    // 应用隐藏图标设置（此时会显示图标，因为isIconSearchActive为true）
-                    applyHideIcons();
-                }
-            }
-            
-            // Esc 重置到默认搜索引擎
-            if (e.key === 'Escape') {
-                // 退出图标搜索模式
-                exitIconSearchMode();
-                // 切换回默认搜索引擎
-                const searchSelect = document.getElementById('search-engine-select');
-                if (searchSelect) {
-                    searchSelect.dataset.value = appData.defaultSearchEngine;
-                    const selectValue = searchSelect.querySelector('.select-value');
-                    if (selectValue) {
-                        const engine = allEngines[appData.defaultSearchEngine];
-                        if (engine) {
-                            selectValue.textContent = engine.name;
-                        }
-                    }
-                    // 更新搜索占位符
-                    updateSearchPlaceholder();
-                    // 显示管理按钮
-                    const enableBtn = document.getElementById('enable-sort-btn');
-                    if (enableBtn) enableBtn.style.visibility = 'visible';
-                }
-                // 重置图标搜索模式
-                isIconSearchMode = false;
-                isIconSearchActive = false; // 标记当前不处于图标搜索模式
-                // 隐藏搜索联想
-                hideSearchSuggestions();
-                // 重新渲染图标（根据当前的隐藏图标设置）
-                if (currentFolderPath.length === 0) {
-                    renderIcons();
-                } else {
-                    const currentFolder = getFolderByPath(currentFolderPath);
-                    renderFolderContents(currentFolder);
-                }
-                updateCurrentFolderDisplay();
-            }
-        });

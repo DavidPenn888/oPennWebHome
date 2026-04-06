@@ -436,56 +436,6 @@ body {
 }
 .search-btn:hover { background: var(--card-bg); }
 
-/* 搜索输入容器样式 */
-.search-input-container {
-    position: relative;
-    flex: 1;
-    display: flex;
-    align-items: center;
-}
-
-/* 搜索联想样式 */
-.search-suggestions {
-    position: absolute;
-    top: 100%;
-    left: 0;
-    right: 0;
-    background: var(--card-bg);
-    border: 1px solid var(--border-color);
-    border-radius: 0 0 8px 8px;
-    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
-    z-index: 1000;
-    max-height: 300px;
-    overflow-y: auto;
-    display: none;
-}
-
-.search-suggestions.show {
-    display: block;
-}
-
-.search-suggestion-item {
-    padding: 10px 15px;
-    cursor: pointer;
-    transition: background 0.2s;
-    display: flex;
-    align-items: center;
-}
-
-.search-suggestion-item:hover {
-    background: var(--card-hover);
-}
-
-.search-suggestion-item .suggestion-icon {
-    margin-right: 10px;
-    font-size: 1rem;
-}
-
-.search-suggestion-item .suggestion-text {
-    flex: 1;
-    color: var(--text-color);
-}
-
 .settings-area { display: flex; gap: 10px; }
 .settings-area button {
     background: transparent; border: 1px solid var(--border-color);
